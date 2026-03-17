@@ -1,0 +1,240 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - displayName: string
+    //   - email: string (required)
+    //   - photoURL: string
+    //   - bio: string
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: posts
+    // Document ID: postId
+    // Fields:
+    //   - authorUid: string (required)
+    //   - authorName: string
+    //   - authorPhoto: string
+    //   - content: string (required)
+    //   - imageUrl: string
+    //   - createdAt: timestamp (required)
+    //   - likesCount: int
+    //   - commentsCount: int
+    //
+    // Collection: posts/{postId}/likes
+    // Document ID: userId
+    // Fields:
+    //   - userId: string (required)
+    //   - postId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: posts/{postId}/comments
+    // Document ID: commentId
+    // Fields:
+    //   - postId: string (required)
+    //   - authorUid: string (required)
+    //   - authorName: string
+    //   - authorPhoto: string
+    //   - content: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // Collection: follows
+    // Document ID: followId
+    // Fields:
+    //   - followerId: string (required)
+    //   - followingId: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.authorUid;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*") || url.matches("^data:image/.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() < 500)) &&
+             (!('displayNameSlug' in data) || data.displayNameSlug == null || (data.displayNameSlug is string && data.displayNameSlug.size() < 500)) &&
+             (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() < 2000)) &&
+             (!('theme' in data) || data.theme == null || (data.theme in ['light', 'dark'])) &&
+             (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() < 1000000));
+    }
+
+    function isValidNotification(data, recipientId) {
+      return data.keys().hasAll(['recipientId', 'senderId', 'type', 'read', 'createdAt']) &&
+             data.recipientId == recipientId &&
+             data.senderId == request.auth.uid &&
+             data.type in ['like', 'comment', 'follow', 'quote', 'mention'] &&
+             data.read == false &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['participants', 'lastMessageAt']) &&
+             request.auth.uid in data.participants &&
+             data.participants.size() >= 2 &&
+             data.lastMessageAt is timestamp;
+    }
+
+    function isValidMessage(data, chatId) {
+      return data.keys().hasAll(['chatId', 'senderId', 'content', 'createdAt']) &&
+             data.chatId == chatId &&
+             data.senderId == request.auth.uid &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 10000 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasAll(['authorUid', 'content', 'createdAt', 'authorName', 'authorPhoto', 'likesCount', 'commentsCount']) &&
+             data.keys().hasOnly(['authorUid', 'content', 'createdAt', 'authorName', 'authorPhoto', 'likesCount', 'commentsCount', 'imageUrl', 'quotedPostId', 'quotedPost', 'hashtags', 'mentions', 'poll', 'mentionMap']) &&
+             data.authorUid == request.auth.uid &&
+             data.content is string && data.content.size() >= 0 && data.content.size() < 10000 &&
+             data.authorName is string && data.authorName.size() < 500 &&
+             data.authorPhoto is string && data.authorPhoto.size() < 1000000 &&
+             data.likesCount is int &&
+             data.commentsCount is int &&
+             data.createdAt is timestamp &&
+             (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() < 3000000)) &&
+             (!('quotedPostId' in data) || data.quotedPostId == null || (data.quotedPostId is string)) &&
+             (!('quotedPost' in data) || data.quotedPost == null || (data.quotedPost is map)) &&
+             (!('hashtags' in data) || data.hashtags is list) &&
+             (!('mentions' in data) || data.mentions is list) &&
+             (!('mentionMap' in data) || data.mentionMap is map) &&
+             (!('poll' in data) || (data.poll is map && data.poll.keys().hasAll(['question', 'options', 'expiresAt'])));
+    }
+
+    function isValidLike(data, postId, userId) {
+      return data.keys().hasAll(['userId', 'postId', 'createdAt']) &&
+             data.keys().hasOnly(['userId', 'postId', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.userId == userId &&
+             data.postId == postId &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidComment(data, postId) {
+      return data.keys().hasAll(['postId', 'authorUid', 'content', 'createdAt', 'authorName', 'authorPhoto']) &&
+             data.keys().hasOnly(['postId', 'authorUid', 'content', 'createdAt', 'authorName', 'authorPhoto', 'mentionMap']) &&
+             data.authorUid == request.auth.uid &&
+             data.postId == postId &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 5000 &&
+             data.authorName is string && data.authorName.size() < 500 &&
+             data.authorPhoto is string && data.authorPhoto.size() < 1000000 &&
+             data.createdAt is timestamp &&
+             (!('mentionMap' in data) || data.mentionMap is map);
+    }
+
+    function isValidFollow(data) {
+      return data.keys().hasAll(['followerId', 'followingId', 'createdAt']) &&
+             data.followerId == request.auth.uid &&
+             data.followingId is string &&
+             data.followerId != data.followingId;
+    }
+
+    function isValidBookmark(data, userId, postId) {
+      return data.keys().hasAll(['userId', 'postId', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.userId == userId &&
+             data.postId == postId &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isOwner(userId);
+
+      match /bookmarks/{postId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidBookmark(request.resource.data, userId, postId);
+        allow update: if isOwner(userId) && isValidBookmark(request.resource.data, userId, postId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /notifications/{notifId} {
+        allow read: if isOwner(userId);
+        allow create: if isAuthenticated() && isValidNotification(request.resource.data, userId);
+        allow update: if isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() && isValidChat(request.resource.data);
+      allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants && isValidMessage(request.resource.data, chatId);
+      }
+    }
+
+    match /follows/{followId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidFollow(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.followerId || request.auth.uid == resource.data.followingId);
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidPost(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (isDocOwner() && isValidPost(request.resource.data)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount', 'poll']) &&
+         (!('likesCount' in request.resource.data) || request.resource.data.likesCount is int) &&
+         (!('commentsCount' in request.resource.data) || request.resource.data.commentsCount is int) &&
+         (!('poll' in request.resource.data) || (request.resource.data.poll is map && request.resource.data.poll.options is list)))
+      );
+      allow delete: if isDocOwner();
+
+      match /likes/{userId} {
+        allow read: if true;
+        allow create: if isOwner(userId) && isValidLike(request.resource.data, postId, userId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isValidComment(request.resource.data, postId);
+        allow update: if isAuthenticated() && request.auth.uid == resource.data.authorUid && isValidComment(request.resource.data, postId);
+        allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorUid || request.auth.uid == get(/databases/$(database)/documents/posts/$(postId)).data.authorUid);
+      }
+    }
+  }
+}

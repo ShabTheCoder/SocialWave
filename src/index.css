@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-bg-main: #F9F9F8;
+  --color-text-main: #1c1917;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    @apply antialiased scroll-smooth;
+    font-family: "Inter", sans-serif;
+  }
+
+  body {
+    background-color: var(--color-bg-main);
+    color: var(--color-text-main);
+    @apply transition-colors duration-300;
+  }
+
+  .dark {
+    --color-bg-main: #0c0a09;
+    --color-text-main: #fafaf9;
+    color-scheme: dark;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: "Space Grotesk", sans-serif !important;
+  }
+}
+
+@layer components {
+  .glass-morphism {
+    @apply backdrop-blur-md shadow-sm bg-white/70 border border-black/5;
+  }
+
+  .dark .glass-morphism {
+    @apply bg-stone-900/70 border-white/5;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-xl hover:shadow-black/5 hover:-translate-y-0.5;
+  }
+}
