@@ -48,7 +48,7 @@ A modern, full-stack social media application built with React, Express, and Fir
 
 ## 🌐 Deployment (Render)
 
-This app is optimized for deployment on [Render](https://render.com/).
+This app is optimized for deployment on [Render](https://render.com/)
 
 1. **Create a New Web Service** on Render and connect your GitHub repository.
 2. **Build Settings**:
@@ -61,6 +61,7 @@ This app is optimized for deployment on [Render](https://render.com/).
    - `GEMINI_API_KEY`: Your Google AI API Key.
    - `APP_URL`: Your Render app URL (e.g., `https://social-wave.onrender.com`).
    - `FIREBASE_CONFIG`: The JSON string of your Firebase configuration.
+   - The site is currently hosted at https://social-wave-nvbn.onrender.com
 
 ## 📄 License
 
