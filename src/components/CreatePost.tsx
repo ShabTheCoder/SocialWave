@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../firebase';
-import { useDocument } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, serverTimestamp, doc, getDocs, query, Timestamp } from 'firebase/firestore';
+import { auth } from '../firebase';
+import { api } from '../services/api';
 import { Image, X, Send, BarChart2, Plus, Minus, AlertCircle } from 'lucide-react';
-import { handleFirestoreError, triggerNotification } from '../utils';
-import { OperationType, UserProfile, Post, Poll } from '../types';
+import { triggerNotification } from '../utils';
+import { UserProfile, Post, Poll } from '../types';
 
 interface CreatePostProps {
   quotedPost?: Post;
@@ -21,11 +20,13 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  const [userProfileSnapshot] = useDocument(
-    auth.currentUser ? doc(db, 'users', auth.currentUser.uid) : null
-  );
-  const userProfile = userProfileSnapshot?.data() as UserProfile | undefined;
+  useEffect(() => {
+    if (auth.currentUser) {
+      api.getUser(auth.currentUser.uid).then(setUserProfile).catch(console.error);
+    }
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
@@ -73,17 +74,6 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
     setPollOptions(newOptions);
   };
 
-  const extractHashtags = (text: string) => {
-    const hashtags = text.match(/#[\w\u0080-\uffff]+/g);
-    return hashtags ? Array.from(new Set(hashtags.map(h => h.substring(1).toLowerCase()))) : [];
-  };
-
-  const extractMentions = (text: string) => {
-    // Improved regex to include hyphens and underscores, common in handles
-    const mentions = text.match(/@[\w\u0080-\uffff-]+/g);
-    return mentions ? Array.from(new Set(mentions.map(m => m.substring(1)))) : [];
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -94,87 +84,13 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
     setLoading(true);
     setError(null);
     try {
-      const hashtags = extractHashtags(content);
-      const rawMentions = extractMentions(content);
-      const mentionMap: Record<string, string> = {};
-
-      // Resolve mentions to UIDs efficiently
-      if (rawMentions.length > 0) {
-        const { where } = await import('firebase/firestore');
-        const usersRef = collection(db, 'users');
-        const mentionSlugs = rawMentions.map(m => m.toLowerCase());
-        
-        // Firestore 'in' query supports up to 10 items
-        const chunks = [];
-        for (let i = 0; i < mentionSlugs.length; i += 10) {
-          chunks.push(mentionSlugs.slice(i, i + 10));
-        }
-
-        for (const chunk of chunks) {
-          const querySnapshot = await getDocs(query(usersRef, where('displayNameSlug', 'in', chunk)));
-          querySnapshot.docs.forEach(doc => {
-            const userData = doc.data();
-            const slug = userData.displayNameSlug || userData.displayName?.toLowerCase().replace(/\s+/g, '');
-            if (slug) {
-              mentionMap[slug] = doc.id;
-            }
-          });
-        }
-      }
-
-      const postData: any = {
-        authorUid: auth.currentUser.uid,
+      await api.createPost({
+        authorId: auth.currentUser.uid,
         authorName: userProfile?.displayName || auth.currentUser.displayName || 'Anonymous',
         authorPhoto: userProfile?.photoURL || auth.currentUser.photoURL || '',
         content,
-        imageUrl: image,
-        createdAt: serverTimestamp(),
-        likesCount: 0,
-        commentsCount: 0,
-        hashtags,
-        mentions: Object.keys(mentionMap),
-        mentionMap,
-      };
-
-      if (showPoll && pollQuestion.trim() && pollOptions.every(opt => opt.trim())) {
-        const poll: Poll = {
-          question: pollQuestion,
-          options: pollOptions.map((opt, i) => ({
-            id: `opt-${i}`,
-            text: opt,
-            votes: []
-          })),
-          expiresAt: new Timestamp(Math.floor(Date.now() / 1000) + 86400, 0) // 24 hours from now
-        } as any;
-        postData.poll = poll;
-      }
-
-      if (quotedPost) {
-        postData.quotedPostId = quotedPost.id;
-        postData.quotedPost = {
-          id: quotedPost.id,
-          authorUid: quotedPost.authorUid,
-          authorName: quotedPost.authorName,
-          authorPhoto: quotedPost.authorPhoto,
-          content: quotedPost.content,
-          // Only store the image URL if it's not a large base64 string to save space
-          imageUrl: quotedPost.imageUrl?.startsWith('data:') ? null : quotedPost.imageUrl,
-          createdAt: quotedPost.createdAt
-        };
-      }
-
-      const postRef = await addDoc(collection(db, 'posts'), postData);
-      
-      // Handle mentions notifications
-      if (Object.keys(mentionMap).length > 0) {
-        try {
-          for (const slug in mentionMap) {
-            triggerNotification(mentionMap[slug], 'mention', postRef.id);
-          }
-        } catch (err) {
-          console.error('Error processing mentions:', err);
-        }
-      }
+        imageUrl: image || '',
+      });
 
       setContent('');
       setImage(null);
@@ -183,13 +99,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
       setPollQuestion('');
       setPollOptions(['', '']);
       if (onSuccess) onSuccess();
+      window.location.reload(); // Refresh to show new post
     } catch (err: any) {
       console.error('Post creation error:', err.message);
-      if (err.message?.includes('permissions')) {
-        setError('Permission denied. Please check your image size or content.');
-      } else {
-        setError('Failed to create post. Please try again.');
-      }
+      setError('Failed to create post. Please try again.');
     } finally {
       setLoading(false);
     }

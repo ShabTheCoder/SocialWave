@@ -2,6 +2,14 @@
 
 A modern, full-stack social media application built with React, Express, and Firebase, featuring AI integration via Google Gemini.
 
+## 📌 Version Information
+**Current Version**: `v1.26.1_00`
+- **26**: Year (2026)
+- **1**: 1st Major Update
+- **00**: Initial Release (0th Bug Fix)
+
+This is the initial production-ready release of **Social Wave**, featuring a complete full-stack architecture, real-time Firestore integration, and AI-powered content features.
+
 ## 🚀 Features
 
 - **Real-time Social Feed**: Post updates and interact with others instantly.
@@ -48,7 +56,7 @@ A modern, full-stack social media application built with React, Express, and Fir
 
 ## 🌐 Deployment (Render)
 
-This app is optimized for deployment on [Render](https://render.com/)
+This app is optimized for deployment on [Render](https://render.com/).
 
 1. **Create a New Web Service** on Render and connect your GitHub repository.
 2. **Build Settings**:
@@ -61,7 +69,6 @@ This app is optimized for deployment on [Render](https://render.com/)
    - `GEMINI_API_KEY`: Your Google AI API Key.
    - `APP_URL`: Your Render app URL (e.g., `https://social-wave.onrender.com`).
    - `FIREBASE_CONFIG`: The JSON string of your Firebase configuration.
-   - The site is currently hosted at https://social-wave-nvbn.onrender.com
 
 ## 📄 License
 

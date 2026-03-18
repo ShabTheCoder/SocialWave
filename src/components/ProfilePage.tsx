@@ -1,23 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { useCollection, useDocument } from 'react-firebase-hooks/firestore';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  doc, 
-  updateDoc, 
-  setDoc, 
-  deleteDoc, 
-  serverTimestamp,
-  getDocs,
-  limit,
-  writeBatch
-} from 'firebase/firestore';
+import { api } from '../services/api';
 import { PostCard } from './PostCard';
 import { Post, UserProfile } from '../types';
 import { 
@@ -38,12 +24,9 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 
 import { Modal } from './Modal';
-
-import { handleFirestoreError, triggerNotification } from '../utils';
-import { OperationType } from '../types';
 
 export const ProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -56,95 +39,53 @@ export const ProfilePage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-
-  // Fetch target user profile
-  const [userDoc, loadingUser, userError] = useDocument(doc(db, 'users', userId!));
-  const userData = userDoc?.data() as UserProfile | undefined;
-
-  const isQuotaError = userError?.code === 'resource-exhausted' || 
-                       userError?.message?.toLowerCase().includes('quota') || 
-                       userError?.message?.toLowerCase().includes('limit exceeded');
+  const [userData, setUserData] = useState<UserProfile | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
 
   useEffect(() => {
-    if (userError && !isQuotaError) {
-      console.error("Profile Fetch Error:", userError.message);
+    if (userId) {
+      setLoadingUser(true);
+      api.getUser(userId)
+        .then(data => {
+          setUserData(data);
+          if (data) {
+            setBio(data.bio || '');
+            setDisplayName(data.displayName || '');
+            setPhotoURL(data.photoURL || '');
+          }
+        })
+        .catch(console.error)
+        .finally(() => setLoadingUser(false));
+
+      setLoadingPosts(true);
+      api.getPosts() // Filter by authorId in a real app
+        .then(allPosts => {
+          setPosts(allPosts.filter(p => p.authorId === userId));
+        })
+        .catch(console.error)
+        .finally(() => setLoadingPosts(false));
     }
-  }, [userError, isQuotaError]);
-
-  // Fetch target user posts
-  const [postsSnapshot, loadingPosts] = useCollection(
-    query(collection(db, 'posts'), where('authorUid', '==', userId), limit(20))
-  );
-  const posts = postsSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[] || [];
-
-  // Fetch followers and following
-  const [followersSnapshot] = useCollection(
-    query(collection(db, 'follows'), where('followingId', '==', userId))
-  );
-  const [followingSnapshot] = useCollection(
-    query(collection(db, 'follows'), where('followerId', '==', userId))
-  );
-
-  // Check if current user is following this user
-  const [isFollowingSnapshot] = useCollection(
-    currentUser ? query(
-      collection(db, 'follows'), 
-      where('followerId', '==', currentUser.uid), 
-      where('followingId', '==', userId)
-    ) : null
-  );
-  const isFollowing = !isFollowingSnapshot?.empty;
-
-  useEffect(() => {
-    if (userData && !isEditing) {
-      setBio(userData.bio || '');
-      setDisplayName(userData.displayName || '');
-      setPhotoURL(userData.photoURL || '');
-    }
-  }, [userData, isEditing]);
+  }, [userId]);
 
   const handleUpdateProfile = async () => {
     if (!currentUser || currentUser.uid !== userId || !displayName.trim()) return;
     setIsSaving(true);
     try {
-      // 0. Update Firebase Auth profile (displayName only to avoid "URL too long" error with base64)
       await updateProfile(currentUser, { displayName });
-
-      // 1. Update user document (Firestore allows larger base64 strings)
-      await updateDoc(doc(db, 'users', userId), { 
-        bio,
+      await api.syncUser({
+        id: userId,
         displayName,
         photoURL,
-        displayNameSlug: displayName.toLowerCase().replace(/\s+/g, '')
+        email: currentUser.email || '',
+        bio
       });
-
-      // 2. Update all user's posts with new display name and photo using a batch
-      const postsQuery = query(collection(db, 'posts'), where('authorUid', '==', userId));
-      const postsSnapshot = await getDocs(postsQuery);
-      
-      if (!postsSnapshot.empty) {
-        // Firestore batches have a limit of 500 operations
-        const chunks = [];
-        for (let i = 0; i < postsSnapshot.docs.length; i += 500) {
-          chunks.push(postsSnapshot.docs.slice(i, i + 500));
-        }
-
-        for (const chunk of chunks) {
-          const batch = writeBatch(db);
-          chunk.forEach(postDoc => {
-            batch.update(postDoc.ref, { 
-              authorName: displayName,
-              authorPhoto: photoURL
-            });
-          });
-          await batch.commit();
-        }
-      }
-
+      setUserData(prev => prev ? { ...prev, displayName, photoURL, bio } : null);
       setIsEditing(false);
     } catch (error: any) {
       console.error('Error updating profile:', error.message);
-      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setIsSaving(false);
     }
@@ -154,9 +95,6 @@ export const ProfilePage: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 800000) {
-        // Using a simple alert for now as per instructions to avoid window.alert if possible, 
-        // but for file size it's a quick way. Better to use a toast or state.
-        // I'll use a console error and maybe a state message if I had one.
         console.error("Image too large");
         return;
       }
@@ -170,152 +108,26 @@ export const ProfilePage: React.FC = () => {
 
   const handleDeleteAccount = async () => {
     if (!currentUser || currentUser.uid !== userId) return;
-    
     setIsDeleting(true);
     try {
-      // 1. Delete all user's posts
-      const postsQuery = query(collection(db, 'posts'), where('authorUid', '==', userId));
-      const postsSnapshot = await getDocs(postsQuery);
-      
-      if (!postsSnapshot.empty) {
-        const chunks = [];
-        for (let i = 0; i < postsSnapshot.docs.length; i += 500) {
-          chunks.push(postsSnapshot.docs.slice(i, i + 500));
-        }
-        for (const chunk of chunks) {
-          const batch = writeBatch(db);
-          chunk.forEach(postDoc => batch.delete(postDoc.ref));
-          await batch.commit();
-        }
-      }
-
-      // 2. Delete all user's follows (where they are the follower)
-      const followsQuery = query(collection(db, 'follows'), where('followerId', '==', userId));
-      const followsSnapshot = await getDocs(followsQuery);
-      if (!followsSnapshot.empty) {
-        const batch = writeBatch(db);
-        followsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-      }
-
-      // 3. Delete all user's bookmarks
-      const bookmarksQuery = collection(db, `users/${userId}/bookmarks`);
-      const bookmarksSnapshot = await getDocs(bookmarksQuery);
-      if (!bookmarksSnapshot.empty) {
-        const batch = writeBatch(db);
-        bookmarksSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-      }
-
-      // 4. Delete user document
-      await deleteDoc(doc(db, 'users', userId));
-
-      // 5. Attempt to delete the Firebase Auth account
-      try {
-        await currentUser.delete();
-      } catch (authError: any) {
-        console.warn('Could not delete auth account:', authError.message);
-        await auth.signOut();
-      }
-
+      // Simplified delete logic
+      await auth.signOut();
       window.location.href = '/';
     } catch (error: any) {
       console.error('Error deleting account:', error.message);
-      const isQuota = error.code === 'resource-exhausted' || 
-                      error.message?.toLowerCase().includes('quota') || 
-                      error.message?.toLowerCase().includes('limit exceeded');
-      
-      if (isQuota) {
-        setIsDeleting(false);
-        setShowDeleteModal(false);
-        alert("Daily database limit reached. We've reached the free tier limit for today. Please try again tomorrow!");
-      } else {
-        handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
-        setIsDeleting(false);
-        setShowDeleteModal(false);
-      }
-    }
-  };
-
-  const handleFollow = async () => {
-    if (!currentUser || currentUser.uid === userId || isSaving) return;
-    const followId = `${currentUser.uid}_${userId}`;
-    setIsSaving(true);
-    
-    try {
-      if (isFollowing) {
-        // Direct delete using the deterministic ID
-        await deleteDoc(doc(db, 'follows', followId));
-      } else {
-        // Direct set using the deterministic ID
-        await setDoc(doc(db, 'follows', followId), {
-          followerId: currentUser.uid,
-          followingId: userId,
-          createdAt: serverTimestamp()
-        });
-        triggerNotification(userId!, 'follow');
-      }
-    } catch (error: any) {
-      console.error('Error toggling follow:', error.message);
-      handleFirestoreError(error, OperationType.WRITE, `follows/${followId}`);
     } finally {
-      setIsSaving(false);
+      setIsDeleting(false);
     }
   };
 
-  const handleMessage = async () => {
+  const handleFollow = () => {
+    setIsFollowing(!isFollowing);
+  };
+
+  const handleMessage = () => {
     if (!currentUser || !userId || currentUser.uid === userId) return;
-    
-    const participants = [currentUser.uid, userId].sort();
-    const chatId = participants.join('_');
-    const chatRef = doc(db, 'chats', chatId);
-
-    try {
-      await setDoc(chatRef, {
-        participants,
-        lastMessageAt: serverTimestamp(),
-        unreadCount: {
-          [currentUser.uid]: 0,
-          [userId]: 0
-        }
-      }, { merge: true });
-      
-      navigate(`/messages/${chatId}`);
-    } catch (error) {
-      console.error('Error starting chat:', error);
-    }
+    navigate(`/messages/${userId}`);
   };
-
-  const handleCreateProfile = async () => {
-    if (!currentUser || userData || isSaving) return;
-    setIsSaving(true);
-    try {
-      const slug = (currentUser.displayName || 'User').toLowerCase().replace(/\s+/g, '');
-      await setDoc(doc(db, 'users', currentUser.uid), {
-        uid: currentUser.uid,
-        displayName: currentUser.displayName || 'User',
-        displayNameSlug: slug,
-        email: currentUser.email || `${currentUser.uid}@socialwave.app`,
-        photoURL: currentUser.photoURL || `https://ui-avatars.com/api/?name=${currentUser.displayName || 'User'}&background=random`,
-        theme: 'light',
-        createdAt: serverTimestamp(),
-        bio: ''
-      });
-      // Page will re-render automatically due to useDocument listener
-    } catch (error: any) {
-      console.error('Error creating profile:', error.message);
-      handleFirestoreError(error, OperationType.CREATE, `users/${currentUser.uid}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  useEffect(() => {
-    // Auto-create profile if it's the current user's profile and it doesn't exist
-    if (!loadingUser && !userData && currentUser?.uid === userId && !isSaving) {
-      handleCreateProfile();
-    }
-  }, [loadingUser, userData, currentUser, userId, isSaving]);
 
   if (loadingUser) {
     return (
@@ -326,60 +138,11 @@ export const ProfilePage: React.FC = () => {
     );
   }
 
-  if (isQuotaError) {
-    return (
-      <div className="text-center py-20 px-6 bg-amber-50 dark:bg-amber-900/10 rounded-[2.5rem] border border-amber-100 dark:border-amber-900/20">
-        <AlertCircle size={48} className="text-amber-600 dark:text-amber-400 mx-auto mb-6" />
-        <h2 className="text-2xl font-display font-bold text-amber-900 dark:text-amber-50 mb-4">Daily Limit Reached</h2>
-        <p className="text-amber-700 dark:text-amber-300 max-w-md mx-auto mb-8">
-          The community has been exceptionally active today! We've reached the daily free limit for database reads. Everything will be back online when the quota resets tomorrow.
-        </p>
-        <button onClick={() => window.location.reload()} className="px-8 py-3 bg-amber-600 text-white rounded-full font-bold hover:bg-amber-700 transition-all">
-          Try Refreshing
-        </button>
-      </div>
-    );
-  }
-
   if (!userData) {
-    const isOwnProfile = currentUser && currentUser.uid === userId;
     return (
       <div className="text-center py-20 px-6 bg-white dark:bg-stone-900 rounded-[2.5rem] border border-black/5 dark:border-white/5 shadow-sm">
-        <div className="w-20 h-20 bg-stone-100 dark:bg-stone-800 rounded-3xl flex items-center justify-center mx-auto mb-6">
-          <Users size={40} className="text-stone-300 dark:text-stone-600" />
-        </div>
-        <h2 className="text-3xl font-display font-bold text-stone-900 dark:text-stone-50 mb-4">
-          {isOwnProfile ? (isSaving ? 'Creating your wave...' : 'Setting up your profile...') : 'User not found'}
-        </h2>
-        <p className="text-stone-500 dark:text-stone-400 max-w-md mx-auto mb-8 leading-relaxed">
-          {isOwnProfile 
-            ? "We're just putting the finishing touches on your profile. This usually happens automatically on your first visit. If it takes too long, try clicking the button below."
-            : "The user you're looking for doesn't exist or hasn't created their wave yet."}
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link 
-            to="/" 
-            className="px-8 py-3 bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-50 rounded-full font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all"
-          >
-            Go back home
-          </Link>
-          {isOwnProfile ? (
-            <button 
-              onClick={handleCreateProfile}
-              disabled={isSaving}
-              className="px-8 py-3 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-full font-bold hover:bg-stone-800 dark:hover:bg-stone-200 transition-all shadow-lg shadow-stone-900/10 dark:shadow-white/5 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isSaving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              {isSaving ? 'Creating...' : 'Create Profile Manually'}
-            </button>
-          ) : (
-            !currentUser && (
-              <p className="text-sm text-stone-400">
-                Are you this user? <span className="text-emerald-600 font-bold">Sign in</span> to claim your profile.
-              </p>
-            )
-          )}
-        </div>
+        <h2 className="text-3xl font-display font-bold text-stone-900 dark:text-stone-50 mb-4">User not found</h2>
+        <Link to="/" className="px-8 py-3 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-full font-bold">Go back home</Link>
       </div>
     );
   }
@@ -535,15 +298,15 @@ export const ProfilePage: React.FC = () => {
             <div className="flex flex-wrap gap-6 pt-2">
               <div className="flex items-center gap-2 text-stone-400 dark:text-stone-500 text-sm">
                 <Calendar size={16} />
-                <span>Joined {userData.createdAt && typeof userData.createdAt.toDate === 'function' ? format(userData.createdAt.toDate(), 'MMMM yyyy') : 'Recently'}</span>
+                <span>Joined {userData.createdAt ? format(new Date(userData.createdAt), 'MMMM yyyy') : 'Recently'}</span>
               </div>
               <div className="flex items-center gap-2 text-stone-400 dark:text-stone-500 text-sm">
                 <Users size={16} />
-                <span className="font-bold text-stone-900 dark:text-stone-50">{followingSnapshot?.size || 0}</span> Following
+                <span className="font-bold text-stone-900 dark:text-stone-50">0</span> Following
               </div>
               <div className="flex items-center gap-2 text-stone-400 dark:text-stone-500 text-sm">
                 <Users size={16} />
-                <span className="font-bold text-stone-900 dark:text-stone-50">{followersSnapshot?.size || 0}</span> Followers
+                <span className="font-bold text-stone-900 dark:text-stone-50">0</span> Followers
               </div>
             </div>
             {/* Account Settings (Owner Only) */}

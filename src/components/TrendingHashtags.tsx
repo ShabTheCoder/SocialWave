@@ -1,19 +1,24 @@
-import React from 'react';
-import { collection, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
-import { useCollection } from 'react-firebase-hooks/firestore';
+import React, { useEffect, useState } from 'react';
+import { api } from '../services/api';
 import { Link } from 'react-router-dom';
 import { Hash, TrendingUp } from 'lucide-react';
+import { Post } from '../types';
 
 export const TrendingHashtags: React.FC = () => {
-  const postsQuery = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(50));
-  const [snapshot, loading] = useCollection(postsQuery);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getPosts()
+      .then(setPosts)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
   const hashtagsMap: { [key: string]: number } = {};
-  snapshot?.docs.forEach(doc => {
-    const data = doc.data();
-    if (data.hashtags && Array.isArray(data.hashtags)) {
-      data.hashtags.forEach((tag: string) => {
+  posts.forEach(post => {
+    if (post.hashtags && Array.isArray(post.hashtags)) {
+      post.hashtags.forEach((tag: string) => {
         hashtagsMap[tag] = (hashtagsMap[tag] || 0) + 1;
       });
     }

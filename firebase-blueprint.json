@@ -1,188 +1,65 @@
 {
   "entities": {
-    "User": {
-      "title": "User",
-      "description": "User profile information",
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Public profile information for a user.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string", "description": "Unique identifier for the user" },
-        "displayName": { "type": "string", "description": "User's display name" },
-        "email": { "type": "string", "description": "User's email address" },
-        "photoURL": { "type": "string", "description": "URL to user's profile picture" },
-        "bio": { "type": "string", "description": "User's short biography" },
-        "theme": { "type": "string", "enum": ["light", "dark"], "description": "User's preferred theme" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the user account was created" }
+        "uid": { "type": "string", "description": "Unique identifier for the user." },
+        "displayName": { "type": "string", "description": "Display name of the user." },
+        "email": { "type": "string", "format": "email", "description": "Email address of the user." },
+        "photoURL": { "type": "string", "description": "URL to the user's profile photo." },
+        "bio": { "type": "string", "description": "Short biography of the user." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." }
       },
-      "required": ["uid", "email", "createdAt"]
+      "required": ["uid", "displayName", "email", "createdAt"]
     },
     "Post": {
       "title": "Post",
-      "description": "A social media post",
+      "description": "A social media post.",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "description": "Unique identifier for the post" },
-        "authorUid": { "type": "string", "description": "UID of the post author" },
-        "authorName": { "type": "string", "description": "Name of the post author" },
-        "authorPhoto": { "type": "string", "description": "Photo URL of the post author" },
-        "content": { "type": "string", "description": "Text content of the post" },
-        "imageUrl": { "type": "string", "description": "Base64 or URL of an attached image" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the post was created" },
-        "likesCount": { "type": "integer", "description": "Number of likes" },
-        "commentsCount": { "type": "integer", "description": "Number of comments" },
-        "quotedPostId": { "type": "string", "description": "ID of the post being quoted" },
-        "quotedPost": { "type": "object", "description": "Snapshot of the quoted post" },
-        "hashtags": { "type": "array", "items": { "type": "string" }, "description": "List of hashtags in the post" },
-        "mentions": { "type": "array", "items": { "type": "string" }, "description": "List of user mentions in the post" },
-        "poll": { 
-          "type": "object", 
-          "properties": {
-            "question": { "type": "string" },
-            "options": { 
-              "type": "array", 
-              "items": { 
-                "type": "object",
-                "properties": {
-                  "id": { "type": "string" },
-                  "text": { "type": "string" },
-                  "votes": { "type": "array", "items": { "type": "string" } }
-                }
-              }
-            },
-            "expiresAt": { "type": "string", "format": "date-time" }
-          },
-          "description": "Poll data if the post is a poll"
-        }
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "hashtags": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["authorUid", "content", "createdAt"]
-    },
-    "Like": {
-      "title": "Like",
-      "description": "A like on a post",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string", "description": "UID of the user who liked" },
-        "postId": { "type": "string", "description": "ID of the post liked" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the like was created" }
-      },
-      "required": ["userId", "postId", "createdAt"]
+      "required": ["authorId", "content", "createdAt"]
     },
     "Comment": {
       "title": "Comment",
-      "description": "A comment on a post",
+      "description": "A comment on a post.",
       "type": "object",
       "properties": {
-        "postId": { "type": "string", "description": "ID of the post commented on" },
-        "authorUid": { "type": "string", "description": "UID of the comment author" },
-        "authorName": { "type": "string", "description": "Name of the comment author" },
-        "authorPhoto": { "type": "string", "description": "Photo URL of the comment author" },
-        "content": { "type": "string", "description": "Text content of the comment" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the comment was created" }
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorPhoto": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["postId", "authorUid", "content", "createdAt"]
-    },
-    "Follow": {
-      "title": "Follow",
-      "description": "A follow relationship between two users",
-      "type": "object",
-      "properties": {
-        "followerId": { "type": "string", "description": "UID of the user who is following" },
-        "followingId": { "type": "string", "description": "UID of the user being followed" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the follow relationship was created" }
-      },
-      "required": ["followerId", "followingId", "createdAt"]
-    },
-    "Bookmark": {
-      "title": "Bookmark",
-      "description": "A bookmarked post by a user",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string", "description": "UID of the user who bookmarked" },
-        "postId": { "type": "string", "description": "ID of the post bookmarked" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the bookmark was created" }
-      },
-      "required": ["userId", "postId", "createdAt"]
-    },
-    "Notification": {
-      "title": "Notification",
-      "description": "A notification for a user",
-      "type": "object",
-      "properties": {
-        "recipientId": { "type": "string", "description": "UID of the user receiving the notification" },
-        "senderId": { "type": "string", "description": "UID of the user who triggered the notification" },
-        "senderName": { "type": "string", "description": "Name of the sender" },
-        "senderPhoto": { "type": "string", "description": "Photo URL of the sender" },
-        "type": { "type": "string", "enum": ["like", "comment", "follow", "quote", "mention"], "description": "Type of notification" },
-        "postId": { "type": "string", "description": "ID of the post related to the notification" },
-        "read": { "type": "boolean", "description": "Whether the notification has been read" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the notification was created" }
-      },
-      "required": ["recipientId", "senderId", "type", "read", "createdAt"]
-    },
-    "Chat": {
-      "title": "Chat",
-      "description": "A private or group chat between users",
-      "type": "object",
-      "properties": {
-        "participants": { "type": "array", "items": { "type": "string" }, "description": "UIDs of chat participants" },
-        "lastMessage": { "type": "string", "description": "Content of the last message" },
-        "lastMessageAt": { "type": "string", "format": "date-time", "description": "Timestamp of the last message" },
-        "unreadCount": { "type": "object", "description": "Unread message count per user" },
-        "isGroup": { "type": "boolean", "description": "Whether this is a group chat" },
-        "name": { "type": "string", "description": "Name of the group chat" },
-        "groupAvatar": { "type": "string", "description": "Avatar URL for the group chat" },
-        "createdBy": { "type": "string", "description": "UID of the user who created the group" }
-      },
-      "required": ["participants", "lastMessageAt"]
-    },
-    "Message": {
-      "title": "Message",
-      "description": "A message in a chat",
-      "type": "object",
-      "properties": {
-        "chatId": { "type": "string", "description": "ID of the chat this message belongs to" },
-        "senderId": { "type": "string", "description": "UID of the message sender" },
-        "content": { "type": "string", "description": "Text content of the message" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the message was created" }
-      },
-      "required": ["chatId", "senderId", "content", "createdAt"]
     }
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": "User",
-      "description": "User profiles"
-    },
-    "/users/{userId}/bookmarks/{postId}": {
-      "schema": "Bookmark",
-      "description": "User bookmarks"
-    },
-    "/users/{userId}/notifications/{notifId}": {
-      "schema": "Notification",
-      "description": "User notifications"
-    },
-    "/chats/{chatId}": {
-      "schema": "Chat",
-      "description": "Private chats"
-    },
-    "/chats/{chatId}/messages/{messageId}": {
-      "schema": "Message",
-      "description": "Messages in a chat"
-    },
-    "/follows/{followId}": {
-      "schema": "Follow",
-      "description": "Follow relationships"
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles."
     },
     "/posts/{postId}": {
       "schema": "Post",
-      "description": "Social media posts"
-    },
-    "/posts/{postId}/likes/{userId}": {
-      "schema": "Like",
-      "description": "Likes on a post"
+      "description": "Collection of posts."
     },
     "/posts/{postId}/comments/{commentId}": {
       "schema": "Comment",
-      "description": "Comments on a post"
+      "description": "Subcollection of comments for a post."
     }
   }
 }

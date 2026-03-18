@@ -1,23 +1,24 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
-import { useCollection } from 'react-firebase-hooks/firestore';
+import { api } from '../services/api';
 import { PostCard } from './PostCard';
 import { Post } from '../types';
 import { Hash, Compass } from 'lucide-react';
 
 export const HashtagPage: React.FC = () => {
   const { tag } = useParams<{ tag: string }>();
-  const hashtagQuery = query(
-    collection(db, 'posts'),
-    where('hashtags', 'array-contains', tag?.toLowerCase()),
-    orderBy('createdAt', 'desc'),
-    limit(25)
-  );
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [snapshot, loading, error] = useCollection(hashtagQuery);
-  const posts = snapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[] || [];
+  useEffect(() => {
+    if (tag) {
+      setLoading(true);
+      api.getPostsByHashtag(tag)
+        .then(setPosts)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, [tag]);
 
   return (
     <div className="space-y-8">

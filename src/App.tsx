@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { useCollection } from 'react-firebase-hooks/firestore';
 import { auth, db } from './firebase';
-import { collection, query, orderBy, limit, doc, where, getDocs, setDoc, serverTimestamp, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { api } from './services/api';
 import { Auth } from './components/Auth';
 import { CreatePost } from './components/CreatePost';
 import { PostCard } from './components/PostCard';
@@ -35,38 +35,65 @@ function SocialApp() {
   const [user, loadingAuth] = useAuthState(auth);
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  console.log('Current theme in SocialApp:', theme);
   const location = useLocation();
-  const postsQuery = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(25));
-  const [postsSnapshot, loadingPosts, error] = useCollection(postsQuery);
+  
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [error, setError] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
-  const isQuotaError = error?.code === 'resource-exhausted' || 
-                       error?.message?.toLowerCase().includes('quota') || 
-                       error?.message?.toLowerCase().includes('limit exceeded');
-
-  const posts = postsSnapshot?.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) as Post[] || [];
+  const fetchPosts = async () => {
+    try {
+      setLoadingPosts(true);
+      const data = await api.getPosts();
+      setPosts(data);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
 
   useEffect(() => {
-    if (error && !isQuotaError) {
-      console.error("Firestore Feed Error:", error.message);
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const newPosts = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Post));
+      setPosts(newPosts);
+      setLoadingPosts(false);
+    }, (err) => {
+      console.error('Firestore onSnapshot error:', err);
+      setError(err);
+      setLoadingPosts(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      const q = query(collection(db, 'users', user.uid, 'notifications'), orderBy('createdAt', 'desc'), limit(20));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const newNotifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setNotifications(newNotifs);
+      });
+
+      // Sync user to Firestore
+      api.syncUser({
+        id: user.uid,
+        displayName: user.displayName || 'Anonymous',
+        photoURL: user.photoURL || '',
+        email: user.email || ''
+      }).catch(console.error);
+
+      return () => unsubscribe();
     }
-  }, [error, isQuotaError]);
+  }, [user]);
 
-  const [unreadNotifs] = useCollection(
-    user ? query(collection(db, `users/${user.uid}/notifications`), where('read', '==', false), limit(1)) : null
-  );
-  const [unreadChats] = useCollection(
-    user ? query(collection(db, 'chats'), where('participants', 'array-contains', user.uid), limit(50)) : null
-  );
-
-  const hasUnreadNotifs = unreadNotifs && unreadNotifs.size > 0;
-  const hasUnreadMessages = unreadChats?.docs.some(doc => {
-    const data = doc.data();
-    return data.unreadCount?.[user?.uid || ''] > 0;
-  });
+  const hasUnreadNotifs = notifications.some(n => !n.read);
+  const hasUnreadMessages = false; // Simplified for now
 
   if (loadingAuth) {
     return (
@@ -86,12 +113,6 @@ function SocialApp() {
   return (
     <div className="min-h-screen bg-[var(--color-bg-main)] text-[var(--color-text-main)] font-sans selection:bg-stone-200 dark:selection:bg-stone-800 transition-colors duration-300">
       {/* Quota Warning Banner */}
-      {isQuotaError && (
-        <div className="bg-amber-500 text-white px-4 py-2 text-center text-xs font-bold tracking-widest uppercase z-[100] sticky top-0 flex items-center justify-center gap-2">
-          <AlertCircle size={14} />
-          <span>Read-Only Mode: Daily database limit reached. We'll be back to full power tomorrow!</span>
-        </div>
-      )}
       
       {/* Header */}
       <header className="sticky top-0 z-50 glass-morphism border-b border-black/5 dark:border-white/5">
@@ -210,7 +231,7 @@ function SocialApp() {
           <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-black/5 dark:border-white/5 shadow-sm">
             <h3 className="font-display font-bold text-xl text-stone-900 dark:text-stone-50 mb-6">Who to follow</h3>
             <div className="space-y-6">
-              <WhoToFollow currentUserId={user?.uid} isQuotaError={isQuotaError} />
+              <WhoToFollow currentUserId={user?.uid} />
             </div>
           </div>
 
@@ -278,12 +299,9 @@ interface SidebarItemProps {
 
 function Feed({ posts, loading, error }: { posts: Post[], loading: boolean, error?: any }) {
   const [user] = useAuthState(auth);
-  const isQuotaError = error?.code === 'resource-exhausted' || 
-                       error?.message?.toLowerCase().includes('quota') || 
-                       error?.message?.toLowerCase().includes('limit exceeded');
   
   const handleRefresh = async () => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    window.location.reload();
   };
 
   return (
@@ -312,12 +330,10 @@ function Feed({ posts, loading, error }: { posts: Post[], loading: boolean, erro
               <AlertCircle className="text-red-600 dark:text-red-400 w-8 h-8" />
             </div>
             <h3 className="text-xl font-bold text-stone-900 dark:text-stone-50 mb-2">
-              {isQuotaError ? 'Daily Limit Reached' : 'Feed Connection Error'}
+              Feed Connection Error
             </h3>
             <p className="text-stone-500 dark:text-stone-400 text-sm mb-6">
-              {isQuotaError
-                ? "The community has been very active! We've reached the daily limit for the free database. The feed will be back online tomorrow." 
-                : error.message}
+              {error.message || 'Failed to connect to the database.'}
             </p>
             <button 
               onClick={() => window.location.reload()}
@@ -367,10 +383,16 @@ function Feed({ posts, loading, error }: { posts: Post[], loading: boolean, erro
 }
 
 function DiscoverPage() {
-  const usersQuery = query(collection(db, 'users'), limit(50));
-  const [snapshot, loading] = useCollection(usersQuery);
-  const users = snapshot?.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as any[] || [];
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [currentUser] = useAuthState(auth);
+
+  useEffect(() => {
+    api.listUsers()
+      .then(setUsers)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -385,9 +407,9 @@ function DiscoverPage() {
             <div key={i} className="h-24 bg-stone-100 dark:bg-stone-900 rounded-3xl animate-pulse" />
           ))
         ) : users.length > 0 ? (
-          users.filter(u => u.uid !== currentUser?.uid).map(user => (
-            <div key={user.uid} className="bg-white dark:bg-stone-900 p-4 rounded-3xl border border-black/5 dark:border-white/5 flex items-center justify-between group hover:shadow-lg transition-all">
-              <Link to={`/profile/${user.uid}`} className="flex items-center gap-3 flex-1 min-w-0">
+          users.filter(u => u.id !== currentUser?.uid).map(user => (
+            <div key={user.id} className="bg-white dark:bg-stone-900 p-4 rounded-3xl border border-black/5 dark:border-white/5 flex items-center justify-between group hover:shadow-lg transition-all">
+              <Link to={`/profile/${user.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                 <img 
                   src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} 
                   className="w-12 h-12 rounded-2xl object-cover" 
@@ -399,7 +421,7 @@ function DiscoverPage() {
                 </div>
               </Link>
               <Link 
-                to={`/profile/${user.uid}`}
+                to={`/profile/${user.id}`}
                 className="px-4 py-2 bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-50 rounded-full text-xs font-bold hover:bg-stone-900 dark:hover:bg-stone-50 hover:text-white dark:hover:text-stone-900 transition-all"
               >
                 Profile
@@ -418,47 +440,18 @@ function DiscoverPage() {
 
 function BookmarksPage() {
   const [user] = useAuthState(auth);
-  const [bookmarksSnapshot, loadingBookmarks] = useCollection(
-    user ? query(collection(db, `users/${user.uid}/bookmarks`), orderBy('createdAt', 'desc'), limit(20)) : null
-  );
-  
-  const bookmarkedPostIds = bookmarksSnapshot?.docs.map(doc => doc.data().postId) || [];
   const [posts, setPosts] = useState<Post[]>([]);
-  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const fetchPosts = async () => {
-      if (bookmarkedPostIds.length === 0) {
-        setPosts([]);
-        return;
-      }
-      setLoadingPosts(true);
-      try {
-        // Firestore 'in' query limit is 10
-        const chunks = [];
-        for (let i = 0; i < bookmarkedPostIds.length; i += 10) {
-          chunks.push(bookmarkedPostIds.slice(i, i + 10));
-        }
-
-        const allPosts: Post[] = [];
-        for (const chunk of chunks) {
-          const q = query(collection(db, 'posts'), where('__name__', 'in', chunk));
-          const snap = await getDocs(q);
-          snap.docs.forEach(doc => allPosts.push({ id: doc.id, ...doc.data() } as Post));
-        }
-        
-        // Sort by bookmark creation date (approximate since we don't have it easily here, 
-        // or we could fetch bookmarks and posts separately and join)
-        setPosts(allPosts);
-      } catch (err: any) {
-        console.error("Error fetching bookmarked posts:", err.message);
-      } finally {
-        setLoadingPosts(false);
-      }
-    };
-
-    fetchPosts();
-  }, [bookmarkedPostIds.join(',')]);
+    if (user) {
+      setLoading(true);
+      api.getBookmarks(user.uid)
+        .then(setPosts)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, [user]);
 
   if (!user) return <div className="text-center py-20">Please sign in to view bookmarks</div>;
 
@@ -469,7 +462,7 @@ function BookmarksPage() {
         <p className="text-stone-400 text-sm">Waves you've saved for later</p>
       </div>
       <div className="space-y-8">
-        {loadingBookmarks || loadingPosts ? (
+        {loading ? (
           <div className="animate-pulse space-y-8">
             {[1,2,3].map(i => <div key={i} className="h-64 bg-stone-100 dark:bg-stone-900 rounded-[2rem]" />)}
           </div>
@@ -502,38 +495,30 @@ function SidebarItem({ to, icon, label, active = false, badge = false }: Sidebar
   );
 }
 
-function WhoToFollow({ currentUserId, isQuotaError }: { currentUserId?: string, isQuotaError?: boolean }) {
+function WhoToFollow({ currentUserId }: { currentUserId?: string }) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  const usersQuery = query(collection(db, 'users'), limit(5));
-  const [usersSnapshot, loading] = useCollection(isQuotaError ? null : usersQuery);
-  
-  const users = usersSnapshot?.docs
-    .map(doc => ({ uid: doc.id, ...doc.data() } as any))
-    .filter(u => u.uid !== currentUserId)
-    .slice(0, 3);
 
-  if (isQuotaError) return null;
+  useEffect(() => {
+    api.listUsers()
+      .then(allUsers => {
+        setUsers(allUsers.filter(u => u.id !== currentUserId).slice(0, 5));
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [currentUserId]);
+
   if (loading) return <div className="animate-pulse space-y-4">{[1,2,3].map(i => <div key={i} className="h-12 bg-stone-50 dark:bg-stone-900 rounded-xl" />)}</div>;
   if (!users || users.length === 0) return <p className="text-xs text-stone-400 italic">No suggestions yet</p>;
 
   const handleMessage = async (userId: string) => {
-    if (!currentUserId || !userId || currentUserId === userId) return;
-    
-    const participants = [currentUserId, userId].sort();
-    const chatId = participants.join('_');
-    const chatRef = doc(db, 'chats', chatId);
-
+    if (!currentUserId) return;
     try {
-      await setDoc(chatRef, {
-        participants,
-        lastMessageAt: serverTimestamp(),
-        unreadCount: {
-          [currentUserId]: 0,
-          [userId]: 0
-        }
-      }, { merge: true });
-      
-      navigate(`/messages/${chatId}`);
+      const chatId = await api.createChat([currentUserId, userId]);
+      if (chatId) {
+        navigate(`/messages/${chatId}`);
+      }
     } catch (error) {
       console.error('Error starting chat:', error);
     }
@@ -542,8 +527,8 @@ function WhoToFollow({ currentUserId, isQuotaError }: { currentUserId?: string, 
   return (
     <div className="space-y-4">
       {users.map((user: any) => (
-        <div key={user.uid} className="flex items-center justify-between group cursor-pointer">
-          <Link to={`/profile/${user.uid}`} className="flex items-center gap-3 flex-1 min-w-0">
+        <div key={user.id} className="flex items-center justify-between group cursor-pointer">
+          <Link to={`/profile/${user.id}`} className="flex items-center gap-3 flex-1 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-stone-50 dark:bg-stone-900 border border-black/5 dark:border-white/5 overflow-hidden transition-transform group-hover:scale-105 flex-shrink-0">
               <img 
                 src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}&background=random`} 
@@ -559,14 +544,14 @@ function WhoToFollow({ currentUserId, isQuotaError }: { currentUserId?: string, 
           </Link>
           <div className="flex items-center gap-2 ml-2">
             <button 
-              onClick={() => handleMessage(user.uid)}
+              onClick={() => handleMessage(user.id)}
               className="p-2 bg-stone-100 dark:bg-stone-800 text-stone-400 hover:text-emerald-500 rounded-full transition-all"
               title="Message"
             >
               <MessageSquare size={16} />
             </button>
             <Link 
-              to={`/profile/${user.uid}`}
+              to={`/profile/${user.id}`}
               className="px-4 py-1.5 bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-50 rounded-full text-xs font-bold hover:bg-stone-900 dark:hover:bg-stone-50 hover:text-white dark:hover:text-stone-900 transition-all"
             >
               View
@@ -582,9 +567,11 @@ function WhoToFollow({ currentUserId, isQuotaError }: { currentUserId?: string, 
 }
 
 function GlobalActivity() {
-  const postsQuery = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(5));
-  const [snapshot] = useCollection(postsQuery);
-  const posts = snapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Post[] || [];
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  useEffect(() => {
+    api.getPosts().then(data => setPosts(data.slice(0, 5))).catch(console.error);
+  }, []);
 
   if (posts.length === 0) return null;
 

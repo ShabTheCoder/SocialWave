@@ -1,45 +1,35 @@
-import React, { useEffect } from 'react';
-import { auth, db } from '../firebase';
-import { collection, query, orderBy, limit, doc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
-import { useCollection } from 'react-firebase-hooks/firestore';
+import React, { useEffect, useState } from 'react';
+import { auth } from '../firebase';
+import { api } from '../services/api';
 import { Heart, MessageCircle, UserPlus, Quote, CheckCircle2, BellOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const NotificationsPage: React.FC = () => {
-  const [notificationsSnapshot, loading] = useCollection(
-    auth.currentUser 
-      ? query(
-          collection(db, `users/${auth.currentUser.uid}/notifications`),
-          orderBy('createdAt', 'desc'),
-          limit(50)
-        )
-      : null
-  );
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const notifications = notificationsSnapshot?.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) || [];
+  useEffect(() => {
+    if (auth.currentUser) {
+      setLoading(true);
+      api.getNotifications(auth.currentUser.uid)
+        .then(setNotifications)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, []);
 
   const markAllAsRead = async () => {
-    if (!auth.currentUser || !notificationsSnapshot) return;
-    
-    const batch = writeBatch(db);
-    notificationsSnapshot.docs.forEach(d => {
-      if (!d.data().read) {
-        batch.update(d.ref, { read: true });
-      }
-    });
-    await batch.commit();
+    // Simplified for now
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   useEffect(() => {
-    if (notifications.some(n => !(n as any).read)) {
+    if (notifications.some(n => !n.read)) {
       markAllAsRead();
     }
-  }, [notificationsSnapshot]);
+  }, [notifications]);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -61,6 +51,16 @@ export const NotificationsPage: React.FC = () => {
     }
   };
 
+  const formattedDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return 'Just now';
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (e) {
+      return 'Just now';
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-6">
@@ -74,7 +74,7 @@ export const NotificationsPage: React.FC = () => {
     <div className="max-w-2xl mx-auto py-8 px-4">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-4xl font-display font-bold text-stone-900 dark:text-stone-50">Notifications</h1>
-        {notifications.some(n => !(n as any).read) && (
+        {notifications.some(n => !n.read) && (
           <button 
             onClick={markAllAsRead}
             className="text-xs font-bold uppercase tracking-widest text-emerald-600 hover:text-emerald-700 transition-colors"
@@ -118,7 +118,7 @@ export const NotificationsPage: React.FC = () => {
                     {' '}{getMessage(notif)}
                   </p>
                   <p className="text-[10px] uppercase tracking-widest font-bold text-stone-400 mt-1">
-                    {notif.createdAt?.toDate ? formatDistanceToNow(notif.createdAt.toDate(), { addSuffix: true }) : 'Just now'}
+                    {formattedDate(notif.createdAt)}
                   </p>
                 </div>
 

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { auth, db } from '../firebase';
-import { collection, query, orderBy, limit, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, deleteDoc, getDocs, writeBatch, where } from 'firebase/firestore';
-import { useCollection, useDocument } from 'react-firebase-hooks/firestore';
+import { auth } from '../firebase';
+import { api } from '../services/api';
 import { ArrowLeft, Send, MoreHorizontal, Image as ImageIcon, Smile, X, Trash2, Eraser } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,31 +17,56 @@ export const ChatRoom: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [chatDoc] = useDocument(doc(db, 'chats', chatId!));
-  const chatData = chatDoc?.data();
+  const [chatData, setChatData] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [otherUser, setOtherUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [participantsMap, setParticipantsMap] = useState<any>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const [messagesSnapshot] = useCollection(
-    query(
-      collection(db, `chats/${chatId}/messages`),
-      orderBy('createdAt', 'asc'),
-      limit(100)
-    )
-  );
-
-  const messages = messagesSnapshot?.docs.map(doc => ({ id: doc.id, ...doc.data() })) || [];
   const isGroup = chatData?.isGroup;
-  const otherParticipantId = !isGroup ? chatData?.participants.find((p: string) => p !== auth.currentUser?.uid) : null;
-  const [otherUserDoc] = useDocument(otherParticipantId ? doc(db, 'users', otherParticipantId) : null);
-  const otherUser = otherUserDoc?.data();
+  const otherParticipantId = chatData?.participants?.find((p: string) => p !== auth.currentUser?.uid);
 
-  const [participantsSnapshot] = useCollection(
-    chatData?.participants ? query(collection(db, 'users'), where('uid', 'in', chatData.participants)) : null
-  );
-  const participants = participantsSnapshot?.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as any[] || [];
-  const participantsMap = Object.fromEntries(participants.map(p => [p.uid, p]));
+  useEffect(() => {
+    if (chatId && auth.currentUser) {
+      const fetchChat = async () => {
+        try {
+          const chats = await api.getChats(auth.currentUser!.uid);
+          const currentChat = chats.find(c => c.id === chatId);
+          if (currentChat) {
+            setChatData(currentChat);
+            const otherId = currentChat.participants.find((p: string) => p !== auth.currentUser?.uid);
+            if (otherId) {
+              const user = await api.getUser(otherId);
+              setOtherUser(user);
+              setParticipantsMap((prev: any) => ({ ...prev, [otherId]: user }));
+            }
+            // Add current user to participants map
+            const currentUserData = await api.getUser(auth.currentUser!.uid);
+            setParticipantsMap((prev: any) => ({ ...prev, [auth.currentUser!.uid]: currentUserData }));
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchChat();
+    }
+  }, [chatId]);
+
+  useEffect(() => {
+    if (chatId) {
+      const fetchMessages = () => {
+        api.getMessages(chatId)
+          .then(setMessages)
+          .catch(console.error);
+      };
+      fetchMessages();
+      const interval = setInterval(fetchMessages, 3000); // Poll every 3 seconds
+      return () => clearInterval(interval);
+    }
+  }, [chatId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -50,116 +74,38 @@ export const ChatRoom: React.FC = () => {
     }
   }, [messages]);
 
-  // Mark as read when entering
-  useEffect(() => {
-    if (chatId && auth.currentUser && chatData?.unreadCount?.[auth.currentUser.uid] > 0) {
-      const updateUnread = async () => {
-        await updateDoc(doc(db, 'chats', chatId), {
-          [`unreadCount.${auth.currentUser!.uid}`]: 0
-        });
-      };
-      updateUnread();
-    }
-  }, [chatId, chatData]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !auth.currentUser || !chatId) return;
-
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      try {
-        const messageRef = collection(db, `chats/${chatId}/messages`);
-        const chatRef = doc(db, 'chats', chatId);
-
-        await addDoc(messageRef, {
-          chatId,
-          senderId: auth.currentUser!.uid,
-          content: 'Sent a photo',
-          imageUrl: base64,
-          createdAt: serverTimestamp(),
-        });
-
-        await updateDoc(chatRef, {
-          lastMessage: 'Sent a photo',
-          lastMessageAt: serverTimestamp(),
-        });
-      } catch (error) {
-        console.error('Failed to upload image:', error);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleClearChat = async () => {
-    if (!chatId || !window.confirm('Are you sure you want to clear all messages in this chat?')) return;
-    try {
-      const messagesRef = collection(db, `chats/${chatId}/messages`);
-      const snapshot = await getDocs(messagesRef);
-      const batch = writeBatch(db);
-      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      await batch.commit();
-      
-      await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: 'Chat cleared',
-        lastMessageAt: serverTimestamp()
-      });
-      setShowMore(false);
-    } catch (error) {
-      console.error('Failed to clear chat:', error);
-    }
-  };
-
-  const handleDeleteChat = async () => {
-    if (!chatId || !window.confirm('Are you sure you want to delete this entire chat?')) return;
-    try {
-      await handleClearChat();
-      await deleteDoc(doc(db, 'chats', chatId));
-      navigate('/messages');
-    } catch (error) {
-      console.error('Failed to delete chat:', error);
-    }
-  };
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || !auth.currentUser) return;
+    if (!message.trim() || !auth.currentUser || !chatId) return;
 
     const text = message;
     setMessage('');
     setShowEmojiPicker(false);
 
     try {
-      const messageRef = collection(db, `chats/${chatId}/messages`);
-      const chatRef = doc(db, 'chats', chatId!);
-
-      await addDoc(messageRef, {
-        chatId,
+      await api.sendMessage(chatId, {
         senderId: auth.currentUser.uid,
-        content: text,
-        createdAt: serverTimestamp(),
+        text
       });
-
-      const unreadUpdate: any = {};
-      chatData?.participants.forEach((p: string) => {
-        if (p !== auth.currentUser?.uid) {
-          unreadUpdate[`unreadCount.${p}`] = (chatData?.unreadCount?.[p] || 0) + 1;
-        }
-      });
-
-      await updateDoc(chatRef, {
-        lastMessage: text,
-        lastMessageAt: serverTimestamp(),
-        ...unreadUpdate
-      });
+      // Refresh messages immediately
+      const msgs = await api.getMessages(chatId);
+      setMessages(msgs);
     } catch (error) {
       console.error('Failed to send message:', error);
       setMessage(text);
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Placeholder for now
+  };
+
+  const handleClearChat = async () => {
+    // Placeholder for now
+  };
+
+  const handleDeleteChat = async () => {
+    // Placeholder for now
   };
 
   return (
@@ -221,12 +167,15 @@ export const ChatRoom: React.FC = () => {
                     <div className="px-4 py-2 border-t border-black/5 dark:border-white/5">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2">Members</p>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {participants.map((p: any) => (
-                          <div key={p.uid} className="flex items-center gap-2">
-                            <img src={p.photoURL || `https://ui-avatars.com/api/?name=${p.displayName}`} className="w-6 h-6 rounded-lg object-cover" referrerPolicy="no-referrer" />
-                            <span className="text-xs font-medium text-stone-700 dark:text-stone-300 truncate">{p.displayName}</span>
-                          </div>
-                        ))}
+                        {chatData?.participants.map((pId: string) => {
+                          const p = participantsMap[pId];
+                          return (
+                            <div key={pId} className="flex items-center gap-2">
+                              <img src={p?.photoURL || `https://ui-avatars.com/api/?name=${p?.displayName || 'User'}`} className="w-6 h-6 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                              <span className="text-xs font-medium text-stone-700 dark:text-stone-300 truncate">{p?.displayName || 'Loading...'}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -295,7 +244,7 @@ export const ChatRoom: React.FC = () => {
                   {msg.content}
                 </div>
                 <p className={`text-[9px] font-bold uppercase tracking-widest text-stone-400 ${isMe ? 'text-right' : 'text-left'}`}>
-                  {msg.createdAt?.toDate ? formatDistanceToNow(msg.createdAt.toDate(), { addSuffix: true }) : 'now'}
+                  {msg.createdAt ? formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true }) : 'now'}
                 </p>
               </div>
             </motion.div>

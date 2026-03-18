@@ -23,12 +23,12 @@ export interface Poll {
 
 export interface Post {
   id: string;
-  authorUid: string;
+  authorId: string;
   authorName: string;
   authorPhoto: string;
   content: string;
   imageUrl?: string;
-  createdAt: Timestamp;
+  createdAt: any;
   likesCount: number;
   commentsCount: number;
   quotedPostId?: string;

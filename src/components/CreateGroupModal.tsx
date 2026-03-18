@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
-import { auth, db } from '../firebase';
-import { collection, query, limit, addDoc, serverTimestamp } from 'firebase/firestore';
-import { useCollection } from 'react-firebase-hooks/firestore';
+import React, { useState, useEffect } from 'react';
+import { auth } from '../firebase';
+import { api } from '../services/api';
 import { X, Search, Users, Check, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -17,15 +16,24 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [users, setUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
 
-  const [usersSnapshot, loadingUsers] = useCollection(
-    query(collection(db, 'users'), limit(50))
+  useEffect(() => {
+    if (isOpen) {
+      setLoadingUsers(true);
+      api.listUsers()
+        .then(allUsers => {
+          setUsers(allUsers.filter(u => u.id !== auth.currentUser?.uid));
+        })
+        .catch(console.error)
+        .finally(() => setLoadingUsers(false));
+    }
+  }, [isOpen]);
+
+  const filteredUsers = users.filter(u => 
+    u.displayName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const users = usersSnapshot?.docs
-    .map(doc => ({ uid: doc.id, ...doc.data() } as any))
-    .filter(u => u.uid !== auth.currentUser?.uid)
-    .filter(u => u.displayName?.toLowerCase().includes(searchTerm.toLowerCase())) || [];
 
   const toggleUser = (userId: string) => {
     setSelectedUsers(prev => 
@@ -41,22 +49,13 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
     setIsCreating(true);
     try {
       const participants = [auth.currentUser.uid, ...selectedUsers];
-      const unreadCount: any = {};
-      participants.forEach(p => unreadCount[p] = 0);
 
-      const chatRef = await addDoc(collection(db, 'chats'), {
-        participants,
-        isGroup: true,
-        name: groupName.trim(),
-        createdBy: auth.currentUser.uid,
-        lastMessage: 'Group created',
-        lastMessageAt: serverTimestamp(),
-        unreadCount,
-        groupAvatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=random&size=128`
-      });
+      const chatId = await api.createChat(participants);
 
-      onClose();
-      navigate(`/messages/${chatRef.id}`);
+      if (chatId) {
+        onClose();
+        navigate(`/messages/${chatId}`);
+      }
     } catch (error) {
       console.error('Error creating group:', error);
     } finally {
@@ -129,13 +128,13 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 text-stone-400 animate-spin" />
                     </div>
-                  ) : users.length > 0 ? (
-                    users.map(user => (
+                  ) : filteredUsers.length > 0 ? (
+                    filteredUsers.map(user => (
                       <button
-                        key={user.uid}
-                        onClick={() => toggleUser(user.uid)}
+                        key={user.id}
+                        onClick={() => toggleUser(user.id)}
                         className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all border ${
-                          selectedUsers.includes(user.uid)
+                          selectedUsers.includes(user.id)
                             ? 'bg-emerald-500/5 border-emerald-500/20'
                             : 'hover:bg-stone-50 dark:hover:bg-stone-800 border-transparent'
                         }`}
@@ -150,7 +149,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
                           <p className="text-sm font-bold text-stone-900 dark:text-stone-50">{user.displayName}</p>
                           <p className="text-xs text-stone-400">@{user.displayName?.toLowerCase().replace(/\s+/g, '')}</p>
                         </div>
-                        {selectedUsers.includes(user.uid) && (
+                        {selectedUsers.includes(user.id) && (
                           <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center text-white">
                             <Check size={14} />
                           </div>

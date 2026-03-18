@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import { auth, db } from '../firebase';
-import { collection, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
-import { useCollection } from 'react-firebase-hooks/firestore';
-import { MessageSquare, Search, Plus, Send, Users } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { auth } from '../firebase';
+import { api } from '../services/api';
+import { MessageSquare, Search, Plus, Users } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
@@ -11,20 +10,18 @@ import { CreateGroupModal } from './CreateGroupModal';
 export const MessagesPage: React.FC = () => {
   const navigate = useNavigate();
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [chatsSnapshot, loading] = useCollection(
-    auth.currentUser 
-      ? query(
-          collection(db, 'chats'),
-          where('participants', 'array-contains', auth.currentUser.uid),
-          orderBy('lastMessageAt', 'desc')
-        )
-      : null
-  );
+  const [chats, setChats] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const chats = chatsSnapshot?.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) || [];
+  useEffect(() => {
+    if (auth.currentUser) {
+      setLoading(true);
+      api.getChats(auth.currentUser.uid)
+        .then(setChats)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -101,7 +98,7 @@ export const MessagesPage: React.FC = () => {
                         {isGroup ? chat.name : `Chat with ${otherParticipantId?.substring(0, 6)}...`}
                       </h3>
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                        {chat.lastMessageAt?.toDate ? formatDistanceToNow(chat.lastMessageAt.toDate(), { addSuffix: true }) : 'now'}
+                        {chat.lastMessageAt ? formatDistanceToNow(new Date(chat.lastMessageAt), { addSuffix: true }) : 'now'}
                       </span>
                     </div>
                     <p className="text-sm text-stone-500 dark:text-stone-400 truncate leading-relaxed">
