@@ -10,7 +10,7 @@ export const TrendingHashtags: React.FC = () => {
 
   useEffect(() => {
     api.getPosts()
-      .then(setPosts)
+      .then(data => setPosts(data.posts))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);

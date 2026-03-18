@@ -61,10 +61,8 @@ export const ProfilePage: React.FC = () => {
         .finally(() => setLoadingUser(false));
 
       setLoadingPosts(true);
-      api.getPosts() // Filter by authorId in a real app
-        .then(allPosts => {
-          setPosts(allPosts.filter(p => p.authorId === userId));
-        })
+      api.getPostsByUser(userId)
+        .then(setPosts)
         .catch(console.error)
         .finally(() => setLoadingPosts(false));
     }

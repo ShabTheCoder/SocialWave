@@ -16,7 +16,7 @@ import { TrendingPage } from './components/TrendingPage';
 import { PullToRefresh } from './components/PullToRefresh';
 import { Post } from './types';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { Moon, Sun, Waves, TrendingUp, Users, Bookmark, Settings, Bell, Search, Compass, AlertCircle, RefreshCcw, User as UserIcon, MessageSquare } from 'lucide-react';
+import { Moon, Sun, Waves, TrendingUp, Users, Bookmark, Settings, Bell, Search, Compass, AlertCircle, RefreshCcw, User as UserIcon, MessageSquare, Loader2 } from 'lucide-react';
 import { Link, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './utils';
@@ -38,35 +38,56 @@ function SocialApp() {
   const location = useLocation();
   
   const [posts, setPosts] = useState<Post[]>([]);
+  const [lastDoc, setLastDoc] = useState<any>(null);
   const [loadingPosts, setLoadingPosts] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (isLoadMore = false) => {
     try {
-      setLoadingPosts(true);
-      const data = await api.getPosts();
-      setPosts(data);
+      if (isLoadMore) setLoadingMore(true);
+      else setLoadingPosts(true);
+
+      const { posts: newPosts, lastDoc: newLastDoc } = await api.getPosts(isLoadMore ? lastDoc : undefined);
+      
+      if (isLoadMore) {
+        setPosts(prev => [...prev, ...newPosts]);
+      } else {
+        setPosts(newPosts);
+      }
+      
+      setLastDoc(newLastDoc);
+      setHasMore(newPosts.length === 15);
     } catch (err) {
       setError(err);
     } finally {
       setLoadingPosts(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(50));
+    // Initial fetch
+    fetchPosts();
+
+    // Real-time listener for the TOP 5 posts only to save quota
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(5));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newPosts = snapshot.docs.map(doc => ({
+      // We only update the top of the feed if we are at the top
+      // For simplicity, let's just update the list if it's the first load or if we want real-time top
+      const topPosts = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Post));
-      setPosts(newPosts);
-      setLoadingPosts(false);
+      
+      setPosts(prev => {
+        const otherPosts = prev.filter(p => !topPosts.find(tp => tp.id === p.id));
+        return [...topPosts, ...otherPosts];
+      });
     }, (err) => {
       console.error('Firestore onSnapshot error:', err);
-      setError(err);
-      setLoadingPosts(false);
     });
 
     return () => unsubscribe();
@@ -214,7 +235,16 @@ function SocialApp() {
         {/* Main Content */}
         <div className="lg:col-span-6 space-y-8">
           <Routes>
-            <Route path="/" element={<Feed posts={posts} loading={loadingPosts} error={error} />} />
+            <Route path="/" element={
+            <Feed 
+              posts={posts} 
+              loading={loadingPosts} 
+              error={error} 
+              hasMore={hasMore} 
+              loadingMore={loadingMore} 
+              onLoadMore={() => fetchPosts(true)} 
+            />
+          } />
             <Route path="/discover" element={<DiscoverPage />} />
             <Route path="/trending" element={<TrendingPage />} />
             <Route path="/bookmarks" element={<BookmarksPage />} />
@@ -297,7 +327,14 @@ interface SidebarItemProps {
   badge?: boolean;
 }
 
-function Feed({ posts, loading, error }: { posts: Post[], loading: boolean, error?: any }) {
+function Feed({ posts, loading, error, hasMore, loadingMore, onLoadMore }: { 
+  posts: Post[], 
+  loading: boolean, 
+  error?: any,
+  hasMore: boolean,
+  loadingMore: boolean,
+  onLoadMore: () => void
+}) {
   const [user] = useAuthState(auth);
   
   const handleRefresh = async () => {
@@ -347,20 +384,41 @@ function Feed({ posts, loading, error }: { posts: Post[], loading: boolean, erro
             <div key={i} className="bg-white dark:bg-stone-900 rounded-3xl p-6 h-72 animate-pulse border border-black/5 dark:border-white/5" />
           ))
         ) : posts && posts.length > 0 ? (
-          <AnimatePresence mode="popLayout">
-            {posts.map((post) => (
-              <motion.div
-                key={post.id}
-                layout
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-              >
-                <PostCard post={post} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+          <>
+            <AnimatePresence mode="popLayout">
+              {posts.map((post) => (
+                <motion.div
+                  key={post.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                >
+                  <PostCard post={post} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={onLoadMore}
+                  disabled={loadingMore}
+                  className="px-8 py-3 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-50 rounded-2xl font-bold shadow-sm border border-black/5 dark:border-white/5 hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center gap-2"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading more...
+                    </>
+                  ) : (
+                    'Load more ripples'
+                  )}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="text-center py-24 bg-white dark:bg-stone-900 rounded-3xl border border-black/5 dark:border-white/5 border-dashed">
             <div className="max-w-xs mx-auto space-y-4">
@@ -570,7 +628,7 @@ function GlobalActivity() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    api.getPosts().then(data => setPosts(data.slice(0, 5))).catch(console.error);
+    api.getPosts().then(data => setPosts(data.posts.slice(0, 5))).catch(console.error);
   }, []);
 
   if (posts.length === 0) return null;

@@ -15,7 +15,10 @@ import {
   addDoc,
   increment,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
+  startAfter,
+  QueryDocumentSnapshot,
+  DocumentData
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Post, OperationType } from '../types';
@@ -26,10 +29,32 @@ const handleFirestoreError = (error: any, operationType: OperationType, path: st
 };
 
 export const api = {
-  async getPosts(): Promise<Post[]> {
+  async getPosts(lastVisible?: QueryDocumentSnapshot<DocumentData>): Promise<{ posts: Post[], lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
     const path = 'posts';
     try {
-      const q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(50));
+      let q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(15));
+      if (lastVisible) {
+        q = query(collection(db, path), orderBy('createdAt', 'desc'), startAfter(lastVisible), limit(15));
+      }
+      const snapshot = await getDocs(q);
+      const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+      const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
+      return { posts, lastDoc };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return { posts: [], lastDoc: null };
+    }
+  },
+
+  async getPostsByUser(userId: string): Promise<Post[]> {
+    const path = 'posts';
+    try {
+      const q = query(
+        collection(db, path), 
+        where('authorId', '==', userId),
+        orderBy('createdAt', 'desc'), 
+        limit(50)
+      );
       const snapshot = await getDocs(q);
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
     } catch (error) {
@@ -45,7 +70,7 @@ export const api = {
         collection(db, path), 
         where('hashtags', 'array-contains', tag.toLowerCase()),
         orderBy('createdAt', 'desc'), 
-        limit(50)
+        limit(20)
       );
       const snapshot = await getDocs(q);
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
@@ -94,12 +119,22 @@ export const api = {
           role: 'client'
         });
       } else {
-        await updateDoc(docRef, {
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          email: user.email,
-          bio: user.bio || docSnap.data().bio || ''
-        });
+        const existingData = docSnap.data();
+        // Only update if something actually changed to save on write quota
+        const hasChanged = 
+          existingData.displayName !== user.displayName ||
+          existingData.photoURL !== user.photoURL ||
+          existingData.email !== user.email ||
+          (user.bio !== undefined && existingData.bio !== user.bio);
+
+        if (hasChanged) {
+          await updateDoc(docRef, {
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            email: user.email,
+            bio: user.bio || existingData.bio || ''
+          });
+        }
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
