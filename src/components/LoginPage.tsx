@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { LogIn, Mail, Lock, User as UserIcon, ArrowRight, Waves, ChevronLeft } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
@@ -19,19 +19,13 @@ export const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const checkRedirect = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          await syncUserToBackend(result.user);
-          navigate('/');
-        }
-      } catch (err: any) {
-        console.error('Redirect error:', err);
-        setError(`[${err.code}] ${err.message}`);
+    // If user is already logged in, send them home
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        navigate('/');
       }
-    };
-    checkRedirect();
+    });
+    return () => unsubscribe();
   }, [navigate]);
 
   const syncUserToBackend = async (loggedUser: any, name?: string) => {
@@ -50,9 +44,18 @@ export const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      await signInWithRedirect(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      await syncUserToBackend(result.user);
+      navigate('/');
     } catch (err: any) {
-      setError(`[${err.code}] ${err.message}`);
+      console.error('Login error:', err);
+      if (err.code === 'auth/popup-blocked') {
+        setError('The login popup was blocked. Please click "Open App in New Tab" below and try again there.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError(`Domain "${window.location.hostname}" is not authorized. Use the button below to copy it and add it to Firebase.`);
+      } else {
+        setError(`[${err.code}] ${err.message}`);
+      }
       setLoading(false);
     }
   };
@@ -216,7 +219,20 @@ export const LoginPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="mt-8 text-center">
+        <div className="mt-8 space-y-4 text-center">
+          <div className="pt-4 border-t border-stone-100 dark:border-stone-800">
+            <p className="text-[10px] text-stone-400 text-center mb-3 uppercase tracking-widest font-bold">Authentication issues?</p>
+            <a
+              href={window.location.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 rounded-xl text-xs font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all flex items-center justify-center gap-2"
+            >
+              <ArrowRight size={14} className="-rotate-45" />
+              Open App in New Tab
+            </a>
+          </div>
+          
           <Link to="/" className="inline-flex items-center gap-2 text-stone-400 hover:text-stone-900 dark:hover:text-stone-50 transition-colors text-sm font-medium">
             <ChevronLeft size={16} />
             Back to Home
