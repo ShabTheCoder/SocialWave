@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import { api } from '../services/api';
 import { Image, X, Send, BarChart2, Plus, Minus, AlertCircle } from 'lucide-react';
-import { triggerNotification } from '../utils';
 import { UserProfile, Post, Poll } from '../types';
 
 interface CreatePostProps {

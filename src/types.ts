@@ -1,12 +1,10 @@
-import { Timestamp } from 'firebase/firestore';
-
 export interface UserProfile {
   uid: string;
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
   bio?: string;
-  createdAt: Timestamp;
+  createdAt: any;
 }
 
 export interface PollOption {
@@ -18,7 +16,7 @@ export interface PollOption {
 export interface Poll {
   question: string;
   options: PollOption[];
-  expiresAt: Timestamp;
+  expiresAt: any;
 }
 
 export interface Post {
@@ -46,7 +44,7 @@ export interface Comment {
   authorName: string;
   authorPhoto: string;
   content: string;
-  createdAt: Timestamp;
+  createdAt: any;
   mentionMap?: Record<string, string>;
 }
 

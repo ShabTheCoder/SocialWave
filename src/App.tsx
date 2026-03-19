@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth, db } from './firebase';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { auth } from './firebase';
 import { api } from './services/api';
 import { Auth } from './components/Auth';
+import { LoginPage } from './components/LoginPage';
 import { CreatePost } from './components/CreatePost';
 import { PostCard } from './components/PostCard';
 import { ProfilePage } from './components/ProfilePage';
@@ -232,6 +232,7 @@ function SocialApp() {
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/messages/:chatId" element={<ChatRoom />} />
             <Route path="/hashtag/:tag" element={<HashtagPage />} />
+            <Route path="/login" element={<LoginPage />} />
           </Routes>
         </div>
 

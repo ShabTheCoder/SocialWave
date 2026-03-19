@@ -4,7 +4,6 @@ import { api } from '../services/api';
 import { Heart, MessageCircle, Share2, MoreHorizontal, Trash2, Send, Bookmark, Quote, BarChart2, Check } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Post, Poll } from '../types';
-import { triggerNotification } from '../utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -125,7 +124,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      // await api.deletePost(post.id);
+      await api.deletePost(post.id);
       setShowDeleteModal(false);
       window.location.reload();
     } catch (error) {

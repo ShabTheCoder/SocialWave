@@ -1,8 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
-import { auth, db } from './firebase';
-import { FirestoreErrorInfo, OperationType } from './types';
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth } from './firebase';
+import { OperationType } from './types';
 
 interface Props {
   children: ReactNode;
@@ -11,30 +10,6 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
-}
-
-export async function triggerNotification(
-  recipientId: string,
-  type: 'like' | 'comment' | 'follow' | 'quote' | 'mention',
-  postId?: string
-) {
-  if (!auth.currentUser || auth.currentUser.uid === recipientId) return;
-
-  const notifRef = doc(collection(db, `users/${recipientId}/notifications`));
-  try {
-    await setDoc(notifRef, {
-      recipientId,
-      senderId: auth.currentUser.uid,
-      senderName: auth.currentUser.displayName || 'Someone',
-      senderPhoto: auth.currentUser.photoURL || '',
-      type,
-      postId: postId || null,
-      read: false,
-      createdAt: serverTimestamp(),
-    });
-  } catch (error) {
-    console.error('Failed to trigger notification:', error);
-  }
 }
 
 export function safeStringify(obj: any): string {
@@ -127,36 +102,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+export function handleApiError(error: unknown, operationType: OperationType, path: string | null) {
   const errorMsg = error instanceof Error ? error.message : String(error);
-  const isQuotaError = errorMsg.toLowerCase().includes('quota') || 
-                       errorMsg.toLowerCase().includes('resource-exhausted') ||
-                       errorMsg.toLowerCase().includes('limit exceeded');
-  
-  const errInfo: FirestoreErrorInfo = {
-    error: errorMsg,
-    authInfo: {
-      userId: auth.currentUser?.uid || undefined,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  
-  const stringifiedInfo = safeStringify(errInfo);
-  
-  if (!isQuotaError) {
-    console.error('Firestore Error: ', stringifiedInfo);
-  }
-  
-  throw new Error(stringifiedInfo);
+  console.error(`API Error [${operationType}] at ${path}:`, errorMsg);
+  throw new Error(errorMsg);
 }

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db } from '../firebase';
-import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { auth } from '../firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { api } from '../services/api';
 
 type Theme = 'light' | 'dark';
 
@@ -19,7 +19,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return savedTheme || 'light';
   });
 
-  // 1. Apply theme to document and localStorage (Side effect of state change)
+  // 1. Apply theme to document and localStorage
   useEffect(() => {
     const root = window.document.documentElement;
     if (theme === 'dark') {
@@ -30,53 +30,24 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // 2. Listen for theme changes in Firestore (Pull)
+  // 2. Fetch theme from Backend on login
   useEffect(() => {
     if (!user) return;
 
-    const userRef = doc(db, 'users', user.uid);
-    const unsubscribe = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const remoteTheme = docSnap.data().theme as Theme;
-        if (remoteTheme) {
-          setTheme(prev => {
-            if (prev !== remoteTheme) {
-              localStorage.setItem('theme', remoteTheme);
-              return remoteTheme;
-            }
-            return prev;
-          });
-        }
+    api.getUser(user.uid).then((userData) => {
+      if (userData?.theme) {
+        setTheme(userData.theme as Theme);
       }
-    }, (error: any) => {
-      // Silence quota errors in the console to reduce spam
-      if (error.code !== 'resource-exhausted') {
-        console.error('Firestore theme sync error:', error.message);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user]); // Removed theme from dependencies
+    }).catch(console.error);
+  }, [user]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     
-    // Sync to Firestore only on manual toggle
+    // Sync to Backend only on manual toggle
     if (user) {
-      const syncToFirestore = async () => {
-        try {
-          const userRef = doc(db, 'users', user.uid);
-          await updateDoc(userRef, { theme: newTheme });
-        } catch (error: any) {
-          if (error.code === 'resource-exhausted') {
-            console.warn('Firestore write quota exceeded. Theme saved locally.');
-          } else {
-            console.error('Error syncing theme to Firestore:', error.message);
-          }
-        }
-      };
-      syncToFirestore();
+      api.updateUserTheme(user.uid, newTheme).catch(console.error);
     }
   };
 

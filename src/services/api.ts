@@ -72,7 +72,7 @@ export const api = {
     }
   },
 
-  async syncUser(user: { id: string; displayName: string; photoURL: string; email: string; bio?: string }): Promise<void> {
+  async syncUser(user: { id: string; displayName: string; photoURL: string; email: string; bio?: string; theme?: string }): Promise<void> {
     try {
       const res = await fetch(`${API_BASE}/users`, {
         method: 'POST',
@@ -82,6 +82,19 @@ export const api = {
       if (!res.ok) throw new Error('Failed to sync user');
     } catch (error) {
       handleApiError(error, OperationType.WRITE, `users/${user.id}`);
+    }
+  },
+
+  async updateUserTheme(userId: string, theme: string): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId, theme })
+      });
+      if (!res.ok) throw new Error('Failed to update theme');
+    } catch (error) {
+      handleApiError(error, OperationType.UPDATE, `users/${userId}/theme`);
     }
   },
 
@@ -109,6 +122,17 @@ export const api = {
     }
   },
 
+  async deletePost(postId: string): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/posts/${postId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Failed to delete post');
+    } catch (error) {
+      handleApiError(error, OperationType.DELETE, `posts/${postId}`);
+    }
+  },
+
   async getNotifications(userId: string): Promise<any[]> {
     try {
       const res = await fetch(`${API_BASE}/notifications/${userId}`);
@@ -125,7 +149,11 @@ export const api = {
       const res = await fetch(`${API_BASE}/notifications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: crypto.randomUUID(), userId, ...notif })
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          recipientId: userId,
+          ...notif
+        })
       });
       if (!res.ok) throw new Error('Failed to create notification');
     } catch (error) {
