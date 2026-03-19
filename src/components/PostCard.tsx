@@ -28,6 +28,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [commentText, setCommentText] = useState('');
   const [comments] = useState<any[]>([]);
   const [showShareTooltip, setShowShareTooltip] = useState(false);
+  const [localPoll, setLocalPoll] = useState(post.poll);
   const [isVoting, setIsVoting] = useState(false);
 
   useEffect(() => {
@@ -134,6 +135,16 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
     }
   };
 
+  const handleVote = async (optionId: string) => {
+    if (!auth.currentUser || !localPoll) return;
+    try {
+      const { poll } = await api.votePoll(post.id, auth.currentUser.uid, optionId);
+      setLocalPoll(poll);
+    } catch (error) {
+      console.error('Error voting on poll:', error);
+    }
+  };
+
   const formattedDate = () => {
     try {
       if (!post.createdAt) return 'Just now';
@@ -207,7 +218,50 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
         </p>
       </div>
 
-      {/* Poll Placeholder - Not implemented in Turso yet */}
+      {localPoll && (
+        <div className="px-6 pb-6 space-y-3">
+          <div className="p-4 bg-stone-50 dark:bg-stone-800/50 rounded-2xl border border-black/5 dark:border-white/5">
+            <h4 className="font-bold text-stone-900 dark:text-stone-50 mb-4">{localPoll.question}</h4>
+            <div className="space-y-3">
+              {localPoll.options.map((option) => {
+                const totalVotes = localPoll.options.reduce((acc, opt) => acc + (opt.votes?.length || 0), 0);
+                const percentage = totalVotes > 0 ? Math.round(((option.votes?.length || 0) / totalVotes) * 100) : 0;
+                const hasVoted = option.votes?.includes(auth.currentUser?.uid || '');
+                const userHasVoted = localPoll.options.some(opt => opt.votes?.includes(auth.currentUser?.uid || ''));
+
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => handleVote(option.id)}
+                    disabled={!auth.currentUser}
+                    className="relative w-full text-left group overflow-hidden rounded-xl border border-black/5 dark:border-white/5 transition-all hover:border-emerald-500/50"
+                  >
+                    <div 
+                      className="absolute inset-0 bg-emerald-500/10 transition-all duration-500 ease-out"
+                      style={{ width: `${percentage}%` }}
+                    />
+                    <div className="relative p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-medium ${hasVoted ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-700 dark:text-stone-300'}`}>
+                          {option.text}
+                        </span>
+                        {hasVoted && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                      </div>
+                      {userHasVoted && (
+                        <span className="text-xs font-bold text-stone-400">{percentage}%</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest flex items-center justify-between">
+              <span>{localPoll.options.reduce((acc, opt) => acc + (opt.votes?.length || 0), 0)} votes</span>
+              <span>Expires in 24h</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quoted Post Placeholder */}
       {post.quotedPost && (

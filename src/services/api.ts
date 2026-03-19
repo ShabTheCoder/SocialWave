@@ -1,236 +1,212 @@
-import { Post, OperationType } from '../types';
+import { Post } from '../types';
 
 const API_BASE = '/api';
 
-const handleApiError = (error: any, operationType: OperationType, path: string) => {
-  console.error(`API Error [${operationType}] at ${path}:`, error);
-  throw error;
-};
-
 export const api = {
-  async getPosts(lastVisible?: any): Promise<{ posts: Post[], lastDoc: any | null }> {
-    try {
-      const res = await fetch(`${API_BASE}/posts`);
-      if (!res.ok) throw new Error('Failed to fetch posts');
-      const posts = await res.json();
-      return { posts, lastDoc: null };
-    } catch (error) {
-      handleApiError(error, OperationType.GET, 'posts');
-      return { posts: [], lastDoc: null };
-    }
+  async getPosts(authorId?: string): Promise<{ posts: Post[], lastDoc: any | null }> {
+    const url = authorId ? `${API_BASE}/posts?authorId=${authorId}` : `${API_BASE}/posts`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch posts');
+    const posts = await res.json();
+    return { posts, lastDoc: null };
   },
 
   async getPostsByUser(userId: string): Promise<Post[]> {
-    try {
-      const res = await fetch(`${API_BASE}/posts?authorId=${userId}`);
-      if (!res.ok) throw new Error('Failed to fetch user posts');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `posts/${userId}`);
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/posts?authorId=${userId}`);
+    if (!res.ok) throw new Error('Failed to fetch user posts');
+    return res.json();
   },
 
   async getPostsByHashtag(hashtag: string): Promise<Post[]> {
-    try {
-      const res = await fetch(`${API_BASE}/posts/hashtag/${hashtag}`);
-      if (!res.ok) throw new Error('Failed to fetch hashtag posts');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `posts/hashtag/${hashtag}`);
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/posts/hashtag/${hashtag}`);
+    if (!res.ok) throw new Error('Failed to fetch hashtag posts');
+    return res.json();
   },
 
   async createPost(post: Omit<Post, 'id' | 'createdAt' | 'likesCount' | 'commentsCount'>): Promise<void> {
-    try {
-      // Extract hashtags from content
-      const hashtags = post.content.match(/#[a-z0-9_]+/gi)?.map(tag => tag.slice(1).toLowerCase()) || [];
-      
-      const res = await fetch(`${API_BASE}/posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          ...post,
-          hashtags
-        })
-      });
-      if (!res.ok) throw new Error('Failed to create post');
-    } catch (error) {
-      handleApiError(error, OperationType.CREATE, 'posts');
-    }
+    const res = await fetch(`${API_BASE}/posts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...post,
+        id: Math.random().toString(36).substr(2, 9),
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to create post');
   },
 
   async getUser(userId: string): Promise<any> {
-    try {
-      const res = await fetch(`${API_BASE}/users/${userId}`);
-      if (!res.ok) throw new Error('Failed to fetch user');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `users/${userId}`);
-    }
+    const res = await fetch(`${API_BASE}/users/${userId}`);
+    if (!res.ok) throw new Error('Failed to fetch user');
+    return res.json();
   },
 
   async syncUser(user: { id: string; displayName: string; photoURL: string; email: string; bio?: string; theme?: string }): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(user)
-      });
-      if (!res.ok) throw new Error('Failed to sync user');
-    } catch (error) {
-      handleApiError(error, OperationType.WRITE, `users/${user.id}`);
-    }
+    const res = await fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user),
+    });
+    if (!res.ok) throw new Error('Failed to sync user');
   },
 
   async updateUserTheme(userId: string, theme: string): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: userId, theme })
-      });
-      if (!res.ok) throw new Error('Failed to update theme');
-    } catch (error) {
-      handleApiError(error, OperationType.UPDATE, `users/${userId}/theme`);
-    }
+    const res = await fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: userId, theme }),
+    });
+    if (!res.ok) throw new Error('Failed to update theme');
   },
 
   async likePost(postId: string, userId: string): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/likes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: crypto.randomUUID(), postId, userId })
-      });
-      if (!res.ok) throw new Error('Failed to like post');
-    } catch (error) {
-      handleApiError(error, OperationType.UPDATE, `posts/${postId}`);
-    }
+    const res = await fetch(`${API_BASE}/likes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `${userId}_${postId}`,
+        postId,
+        userId,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to like post');
   },
 
   async unlikePost(postId: string, userId: string): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/likes?postId=${postId}&userId=${userId}`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('Failed to unlike post');
-    } catch (error) {
-      handleApiError(error, OperationType.UPDATE, `posts/${postId}`);
-    }
+    const res = await fetch(`${API_BASE}/likes?postId=${postId}&userId=${userId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to unlike post');
   },
 
   async deletePost(postId: string): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/posts/${postId}`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('Failed to delete post');
-    } catch (error) {
-      handleApiError(error, OperationType.DELETE, `posts/${postId}`);
-    }
+    const res = await fetch(`${API_BASE}/posts/${postId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete post');
+  },
+
+  async votePoll(postId: string, userId: string, optionId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/posts/${postId}/poll/vote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, optionId }),
+    });
+    if (!res.ok) throw new Error('Failed to vote on poll');
+    return res.json();
+  },
+
+  async exportDb(userId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/admin/export?userId=${userId}`);
+    if (!res.ok) throw new Error('Failed to export database');
+    return res.json();
+  },
+
+  async importDb(data: any, userId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/admin/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, userId }),
+    });
+    if (!res.ok) throw new Error('Failed to import database');
   },
 
   async getNotifications(userId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE}/notifications/${userId}`);
-      if (!res.ok) throw new Error('Failed to fetch notifications');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `notifications/${userId}`);
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/notifications/${userId}`);
+    if (!res.ok) throw new Error('Failed to fetch notifications');
+    return res.json();
   },
 
   async createNotification(userId: string, notif: any): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/notifications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          recipientId: userId,
-          ...notif
-        })
-      });
-      if (!res.ok) throw new Error('Failed to create notification');
-    } catch (error) {
-      handleApiError(error, OperationType.CREATE, `notifications/${userId}`);
-    }
+    const res = await fetch(`${API_BASE}/notifications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...notif,
+        id: Math.random().toString(36).substr(2, 9),
+        userId,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to create notification');
+  },
+
+  // Ads
+  async getAds(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/ads`);
+    if (!res.ok) throw new Error('Failed to fetch ads');
+    return res.json();
+  },
+
+  async createAd(userId: string, ad: any): Promise<void> {
+    const res = await fetch(`${API_BASE}/ads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, ad }),
+    });
+    if (!res.ok) throw new Error('Failed to create ad');
+  },
+
+  async deleteAd(userId: string, adId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/ads/${adId}?userId=${userId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete ad');
+  },
+
+  async toggleAdStatus(userId: string, adId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/ads/${adId}/toggle`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) throw new Error('Failed to toggle ad status');
   },
 
   async getChats(userId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE}/chats/${userId}`);
-      if (!res.ok) throw new Error('Failed to fetch chats');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, 'chats');
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/chats/${userId}`);
+    if (!res.ok) throw new Error('Failed to fetch chats');
+    return res.json();
   },
 
   async getMessages(chatId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE}/messages/${chatId}`);
-      if (!res.ok) throw new Error('Failed to fetch messages');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `messages/${chatId}`);
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/messages/${chatId}`);
+    if (!res.ok) throw new Error('Failed to fetch messages');
+    return res.json();
   },
 
   async sendMessage(chatId: string, message: { senderId: string; text: string }): Promise<void> {
-    try {
-      const res = await fetch(`${API_BASE}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: crypto.randomUUID(), chatId, ...message })
-      });
-      if (!res.ok) throw new Error('Failed to send message');
-    } catch (error) {
-      handleApiError(error, OperationType.CREATE, `messages/${chatId}`);
-    }
+    const res = await fetch(`${API_BASE}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...message,
+        id: Math.random().toString(36).substr(2, 9),
+        chatId,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to send message');
   },
 
   async listUsers(): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE}/users`);
-      if (!res.ok) throw new Error('Failed to list users');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, 'users');
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/users`);
+    if (!res.ok) throw new Error('Failed to fetch users');
+    return res.json();
   },
 
   async createChat(participants: string[]): Promise<string> {
-    try {
-      const id = crypto.randomUUID();
-      const res = await fetch(`${API_BASE}/chats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, participants })
-      });
-      if (!res.ok) throw new Error('Failed to create chat');
-      return id;
-    } catch (error) {
-      handleApiError(error, OperationType.CREATE, 'chats');
-      return '';
-    }
+    const id = Math.random().toString(36).substr(2, 9);
+    const res = await fetch(`${API_BASE}/chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, participants }),
+    });
+    if (!res.ok) throw new Error('Failed to create chat');
+    return id;
   },
 
   async getBookmarks(userId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE}/bookmarks/${userId}`);
-      if (!res.ok) throw new Error('Failed to fetch bookmarks');
-      return await res.json();
-    } catch (error) {
-      handleApiError(error, OperationType.GET, `bookmarks/${userId}`);
-      return [];
-    }
+    const res = await fetch(`${API_BASE}/bookmarks/${userId}`);
+    if (!res.ok) throw new Error('Failed to fetch bookmarks');
+    return res.json();
   },
 };

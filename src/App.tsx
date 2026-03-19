@@ -13,8 +13,10 @@ import { ChatRoom } from './components/ChatRoom';
 import { HashtagPage } from './components/HashtagPage';
 import { TrendingHashtags } from './components/TrendingHashtags';
 import { TrendingPage } from './components/TrendingPage';
+import { SettingsPage } from './components/SettingsPage';
 import { PullToRefresh } from './components/PullToRefresh';
-import { Post } from './types';
+import { Post, Ad } from './types';
+import { AdCard } from './components/AdCard';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Moon, Sun, Waves, TrendingUp, Users, Bookmark, Settings, Bell, Search, Compass, AlertCircle, RefreshCcw, User as UserIcon, MessageSquare, Loader2 } from 'lucide-react';
 import { Link, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
@@ -38,6 +40,7 @@ function SocialApp() {
   const location = useLocation();
   
   const [posts, setPosts] = useState<Post[]>([]);
+  const [ads, setAds] = useState<Ad[]>([]);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -68,13 +71,24 @@ function SocialApp() {
     }
   };
 
+  const fetchAds = async () => {
+    try {
+      const fetchedAds = await api.getAds();
+      setAds(fetchedAds);
+    } catch (err) {
+      console.error('Failed to fetch ads:', err);
+    }
+  };
+
   useEffect(() => {
     // Initial fetch
     fetchPosts();
+    fetchAds();
 
     // Real-time polling for local DB (since we are not using Firestore onSnapshot anymore)
     const interval = setInterval(() => {
       fetchPosts();
+      fetchAds();
     }, 10000); // Poll every 10 seconds
 
     return () => clearInterval(interval);
@@ -198,8 +212,10 @@ function SocialApp() {
                 active={location.pathname === `/profile/${user.uid}`} 
               />
             )}
-            <SidebarItem to="#" icon={<Users size={20} />} label="Communities" />
-            <SidebarItem to="#" icon={<Settings size={20} />} label="Settings" />
+            <SidebarItem to="/discover" icon={<Users size={20} />} label="Communities" active={location.pathname === '/discover'} />
+            {user?.email === "gopinathmanjula7@gmail.com" && (
+              <SidebarItem to="/settings" icon={<Settings size={20} />} label="Settings" active={location.pathname === '/settings'} />
+            )}
           </div>
 
           <div className="p-6 bg-stone-900 dark:bg-stone-50 rounded-3xl text-white dark:text-stone-900 space-y-4 shadow-xl shadow-stone-900/10 dark:shadow-white/5">
@@ -217,6 +233,7 @@ function SocialApp() {
             <Route path="/" element={
             <Feed 
               posts={posts} 
+              ads={ads}
               loading={loadingPosts} 
               error={error} 
               hasMore={hasMore} 
@@ -227,6 +244,9 @@ function SocialApp() {
             <Route path="/discover" element={<DiscoverPage />} />
             <Route path="/trending" element={<TrendingPage />} />
             <Route path="/bookmarks" element={<BookmarksPage />} />
+            {user?.email === "gopinathmanjula7@gmail.com" && (
+              <Route path="/settings" element={<SettingsPage />} />
+            )}
             <Route path="/profile/:userId" element={<ProfilePage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/messages" element={<MessagesPage />} />
@@ -238,12 +258,54 @@ function SocialApp() {
 
         {/* Sidebar Right */}
         <aside className="hidden lg:block lg:col-span-3 space-y-8 sticky top-24 h-fit">
+          {ads.filter(ad => ad.type === 'sidebar').slice(0, 1).map(ad => (
+            <AdCard 
+              key={ad.id}
+              title={ad.title}
+              description={ad.description}
+              imageUrl={ad.imageUrl}
+              ctaText={ad.ctaText}
+              ctaUrl={ad.ctaUrl}
+            />
+          ))}
+          {!ads.some(ad => ad.type === 'sidebar') && (
+            <AdCard 
+              title="Premium Wave Experience"
+              description="Get verified, enjoy ad-free experience and exclusive features."
+              imageUrl="https://picsum.photos/seed/premium/800/600"
+              ctaText="Upgrade Now"
+              ctaUrl="#"
+            />
+          )}
+
           <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-black/5 dark:border-white/5 shadow-sm">
             <h3 className="font-display font-bold text-xl text-stone-900 dark:text-stone-50 mb-6">Who to follow</h3>
             <div className="space-y-6">
               <WhoToFollow currentUserId={user?.uid} />
             </div>
           </div>
+
+          {ads.filter(ad => ad.type === 'sidebar').slice(1, 2).map(ad => (
+            <AdCard 
+              key={ad.id}
+              title={ad.title}
+              description={ad.description}
+              imageUrl={ad.imageUrl}
+              ctaText={ad.ctaText}
+              ctaUrl={ad.ctaUrl}
+              compact
+            />
+          ))}
+          {ads.filter(ad => ad.type === 'sidebar').length < 2 && (
+            <AdCard 
+              title="SocialWave for Business"
+              description="Reach thousands of users with targeted ads and insights."
+              imageUrl="https://picsum.photos/seed/business/800/600"
+              ctaText="Learn More"
+              ctaUrl="#"
+              compact
+            />
+          )}
 
           <TrendingHashtags />
 
@@ -289,6 +351,11 @@ function MobileNav({ user, location }: { user: any, location: any }) {
           <Link to={`/profile/${user.uid}`} className={`p-2 rounded-2xl transition-all ${location.pathname === `/profile/${user.uid}` ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
             <UserIcon size={24} />
           </Link>
+          {user?.email === "gopinathmanjula7@gmail.com" && (
+            <Link to="/settings" className={`p-2 rounded-2xl transition-all ${location.pathname === '/settings' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+              <Settings size={24} />
+            </Link>
+          )}
         </>
       ) : (
         <div className="flex items-center">
@@ -307,8 +374,9 @@ interface SidebarItemProps {
   badge?: boolean;
 }
 
-function Feed({ posts, loading, error, hasMore, loadingMore, onLoadMore }: { 
+function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore }: { 
   posts: Post[], 
+  ads: Ad[],
   loading: boolean, 
   error?: any,
   hasMore: boolean,
@@ -366,18 +434,60 @@ function Feed({ posts, loading, error, hasMore, loadingMore, onLoadMore }: {
         ) : posts && posts.length > 0 ? (
           <>
             <AnimatePresence mode="popLayout">
-              {posts.map((post) => (
-                <motion.div
-                  key={post.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                >
-                  <PostCard post={post} />
-                </motion.div>
-              ))}
+              {posts.flatMap((post, index) => {
+                const items = [
+                  <motion.div
+                    key={post.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                  >
+                    <PostCard post={post} />
+                  </motion.div>
+                ];
+
+                if (index === 2) {
+                  const feedAds = ads.filter(ad => ad.type === 'feed');
+                  if (feedAds.length > 0) {
+                    const ad = feedAds[0 % feedAds.length];
+                    items.push(
+                      <motion.div key={`ad-${ad.id}-${index}`} layout className="my-8">
+                        <AdCard 
+                          title={ad.title}
+                          description={ad.description}
+                          imageUrl={ad.imageUrl}
+                          ctaText={ad.ctaText}
+                          ctaUrl={ad.ctaUrl}
+                        />
+                      </motion.div>
+                    );
+                  }
+                }
+
+                if (index === 7) {
+                  const feedAds = ads.filter(ad => ad.type === 'feed');
+                  if (feedAds.length > 0) {
+                    const adIndex = feedAds.length > 1 ? 1 : 0;
+                    const ad = feedAds[adIndex % feedAds.length];
+                    items.push(
+                      <motion.div key={`ad-${ad.id}-${index}`} layout className="my-8">
+                        <AdCard 
+                          title={ad.title}
+                          description={ad.description}
+                          imageUrl={ad.imageUrl}
+                          ctaText={ad.ctaText}
+                          ctaUrl={ad.ctaUrl}
+                          compact
+                        />
+                      </motion.div>
+                    );
+                  }
+                }
+
+                return items;
+              })}
             </AnimatePresence>
             
             {hasMore && (

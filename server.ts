@@ -31,7 +31,72 @@ function initDb() {
     const userTableInfo = db.prepare("PRAGMA table_info(users)").all();
     if (!userTableInfo.some((col: any) => col.name === 'theme')) {
       db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'");
-      console.log("Added 'theme' column to 'users' table");
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ads (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        imageUrl TEXT,
+        ctaText TEXT DEFAULT 'Learn More',
+        ctaUrl TEXT NOT NULL,
+        type TEXT DEFAULT 'feed', -- 'feed' or 'sidebar'
+        active INTEGER DEFAULT 1,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add default ads if none exist
+    const adsCount = db.prepare("SELECT COUNT(*) as count FROM ads").get() as any;
+    if (adsCount.count === 0) {
+      const defaultAds = [
+        {
+          id: 'ad-1',
+          title: 'Explore the New Wave',
+          description: 'Discover trending communities and connect with like-minded creators.',
+          imageUrl: 'https://picsum.photos/seed/explore/1200/800',
+          ctaText: 'Explore Now',
+          ctaUrl: '/discover',
+          type: 'feed'
+        },
+        {
+          id: 'ad-2',
+          title: 'SocialWave Gear',
+          description: 'Get the official SocialWave merchandise and show your support.',
+          imageUrl: 'https://picsum.photos/seed/gear/1200/800',
+          ctaText: 'Shop Now',
+          ctaUrl: '#',
+          type: 'feed'
+        },
+        {
+          id: 'ad-3',
+          title: 'Premium Wave Experience',
+          description: 'Get verified, enjoy ad-free experience and exclusive features.',
+          imageUrl: 'https://picsum.photos/seed/premium/800/600',
+          ctaText: 'Upgrade Now',
+          ctaUrl: '#',
+          type: 'sidebar'
+        },
+        {
+          id: 'ad-4',
+          title: 'SocialWave for Business',
+          description: 'Reach thousands of users with targeted ads and insights.',
+          imageUrl: 'https://picsum.photos/seed/business/800/600',
+          ctaText: 'Learn More',
+          ctaUrl: '#',
+          type: 'sidebar'
+        }
+      ];
+
+      const insertAd = db.prepare(`
+        INSERT INTO ads (id, title, description, imageUrl, ctaText, ctaUrl, type)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const ad of defaultAds) {
+        insertAd.run(ad.id, ad.title, ad.description, ad.imageUrl, ad.ctaText, ad.ctaUrl, ad.type);
+      }
     }
 
     db.exec(`
@@ -43,6 +108,7 @@ function initDb() {
         content TEXT,
         imageUrl TEXT,
         hashtags TEXT,
+        poll TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         likesCount INTEGER DEFAULT 0,
         commentsCount INTEGER DEFAULT 0,
@@ -50,15 +116,19 @@ function initDb() {
       )
     `);
 
-    // Migration: Add likesCount and commentsCount to posts if they don't exist
     const postTableInfo = db.prepare("PRAGMA table_info(posts)").all();
+
+    // Migration: Add poll column to posts if it doesn't exist
+    if (!postTableInfo.some((col: any) => col.name === 'poll')) {
+      db.exec("ALTER TABLE posts ADD COLUMN poll TEXT");
+    }
+
+    // Migration: Add likesCount and commentsCount to posts if they don't exist
     if (!postTableInfo.some((col: any) => col.name === 'likesCount')) {
       db.exec("ALTER TABLE posts ADD COLUMN likesCount INTEGER DEFAULT 0");
-      console.log("Added 'likesCount' column to 'posts' table");
     }
     if (!postTableInfo.some((col: any) => col.name === 'commentsCount')) {
       db.exec("ALTER TABLE posts ADD COLUMN commentsCount INTEGER DEFAULT 0");
-      console.log("Added 'commentsCount' column to 'posts' table");
     }
 
     db.exec(`
@@ -148,7 +218,9 @@ async function startServer() {
       
       const formattedPosts = posts.map((row: any) => ({
         ...row,
-        hashtags: JSON.parse(row.hashtags || "[]")
+        hashtags: JSON.parse(row.hashtags || "[]"),
+        poll: row.poll ? JSON.parse(row.poll) : null,
+        createdAt: row.createdAt.includes('Z') ? row.createdAt : (row.createdAt.includes(' ') ? row.createdAt.replace(' ', 'T') + 'Z' : row.createdAt)
       }));
       res.json(formattedPosts);
     } catch (err) {
@@ -157,13 +229,46 @@ async function startServer() {
   });
 
   app.post("/api/posts", (req, res) => {
-    const { id, authorId, authorName, authorPhoto, content, imageUrl, hashtags } = req.body;
+    const { id, authorId, authorName, authorPhoto, content, imageUrl, hashtags, poll } = req.body;
+    const createdAt = new Date().toISOString();
     try {
-      db.prepare("INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl, hashtags) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(id, authorId, authorName, authorPhoto, content, imageUrl, JSON.stringify(hashtags || []));
+      db.prepare("INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl, hashtags, poll, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, authorId, authorName, authorPhoto, content, imageUrl, JSON.stringify(hashtags || []), poll ? JSON.stringify(poll) : null, createdAt);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to create post" });
+    }
+  });
+
+  app.post("/api/posts/:postId/poll/vote", (req, res) => {
+    const { postId } = req.params;
+    const { userId, optionId } = req.body;
+
+    try {
+      const post = db.prepare("SELECT poll FROM posts WHERE id = ?").get(postId) as any;
+      if (!post || !post.poll) {
+        return res.status(404).json({ error: "Poll not found" });
+      }
+
+      const poll = JSON.parse(post.poll);
+      
+      // Remove user's previous vote if any
+      poll.options.forEach((opt: any) => {
+        opt.votes = opt.votes.filter((uid: string) => uid !== userId);
+      });
+
+      // Add new vote
+      const option = poll.options.find((opt: any) => opt.id === optionId);
+      if (option) {
+        if (!option.votes) option.votes = [];
+        option.votes.push(userId);
+      }
+
+      db.prepare("UPDATE posts SET poll = ? WHERE id = ?").run(JSON.stringify(poll), postId);
+      res.json({ success: true, poll });
+    } catch (error) {
+      console.error("Poll vote error:", error);
+      res.status(500).json({ error: "Failed to vote" });
     }
   });
 
@@ -175,7 +280,9 @@ async function startServer() {
       
       const formattedPosts = posts.map((row: any) => ({
         ...row,
-        hashtags: JSON.parse(row.hashtags || "[]")
+        hashtags: JSON.parse(row.hashtags || "[]"),
+        poll: row.poll ? JSON.parse(row.poll) : null,
+        createdAt: row.createdAt.includes('Z') ? row.createdAt : (row.createdAt.includes(' ') ? row.createdAt.replace(' ', 'T') + 'Z' : row.createdAt)
       }));
       res.json(formattedPosts);
     } catch (err) {
@@ -198,8 +305,71 @@ async function startServer() {
       db.prepare("DELETE FROM posts WHERE id = ?").run(id);
       res.json({ success: true });
     } catch (error) {
-      console.error("Error deleting post:", error);
       res.status(500).json({ error: "Failed to delete post" });
+    }
+  });
+
+  // Ads API
+  app.get("/api/ads", (req, res) => {
+    try {
+      const ads = db.prepare("SELECT * FROM ads WHERE active = 1 ORDER BY createdAt DESC").all();
+      res.json(ads);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch ads" });
+    }
+  });
+
+  app.post("/api/ads", (req, res) => {
+    const { userId, ad } = req.body;
+    // Admin check
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as any;
+    if (!user || user.email !== "gopinathmanjula7@gmail.com") {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const { id, title, description, imageUrl, ctaText, ctaUrl, type } = ad;
+    try {
+      db.prepare(`
+        INSERT INTO ads (id, title, description, imageUrl, ctaText, ctaUrl, type)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, title, description, imageUrl, ctaText, ctaUrl, type || 'feed');
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create ad" });
+    }
+  });
+
+  app.delete("/api/ads/:id", (req, res) => {
+    const { id } = req.params;
+    const { userId } = req.query;
+    // Admin check
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as any;
+    if (!user || user.email !== "gopinathmanjula7@gmail.com") {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      db.prepare("DELETE FROM ads WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete ad" });
+    }
+  });
+
+  app.patch("/api/ads/:id/toggle", (req, res) => {
+    const { id } = req.params;
+    const { userId } = req.body;
+    // Admin check
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as any;
+    if (!user || user.email !== "gopinathmanjula7@gmail.com") {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      db.prepare("UPDATE ads SET active = 1 - active WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to toggle ad status" });
     }
   });
 
@@ -225,7 +395,6 @@ async function startServer() {
       }
       res.json({ success: true });
     } catch (err) {
-      console.error("Sync user error:", err);
       res.status(500).json({ error: "Failed to sync user" });
     }
   });
@@ -242,6 +411,108 @@ async function startServer() {
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to like post" });
+    }
+  });
+
+  // Database Backup & Restore
+  const isAdmin = (userId: string) => {
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as any;
+    return user && user.email === "gopinathmanjula7@gmail.com";
+  };
+
+  app.get("/api/admin/export", (req, res) => {
+    const { userId } = req.query;
+    if (!userId || !isAdmin(userId as string)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+      const users = db.prepare("SELECT * FROM users").all();
+      const posts = db.prepare("SELECT * FROM posts").all();
+      const likes = db.prepare("SELECT * FROM likes").all();
+      const bookmarks = db.prepare("SELECT * FROM bookmarks").all();
+      const chats = db.prepare("SELECT * FROM chats").all();
+      const chat_participants = db.prepare("SELECT * FROM chat_participants").all();
+      const messages = db.prepare("SELECT * FROM messages").all();
+      const notifications = db.prepare("SELECT * FROM notifications").all();
+      
+      res.json({
+        version: "1.0",
+        timestamp: new Date().toISOString(),
+        data: {
+          users,
+          posts,
+          likes,
+          bookmarks,
+          chats,
+          chat_participants,
+          messages,
+          notifications
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to export database" });
+    }
+  });
+
+  app.post("/api/admin/import", (req, res) => {
+    const { data, userId } = req.body;
+    if (!userId || !isAdmin(userId)) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    if (!data) return res.status(400).json({ error: "No data provided" });
+
+    const runImport = db.transaction(() => {
+      // Clear existing data (optional, but safer for a full restore)
+      db.prepare("DELETE FROM notifications").run();
+      db.prepare("DELETE FROM messages").run();
+      db.prepare("DELETE FROM chat_participants").run();
+      db.prepare("DELETE FROM chats").run();
+      db.prepare("DELETE FROM bookmarks").run();
+      db.prepare("DELETE FROM likes").run();
+      db.prepare("DELETE FROM posts").run();
+      db.prepare("DELETE FROM users").run();
+
+      // Insert new data
+      if (data.users) {
+        const insert = db.prepare("INSERT INTO users (id, displayName, photoURL, email, bio, theme) VALUES (?, ?, ?, ?, ?, ?)");
+        data.users.forEach((u: any) => insert.run(u.id, u.displayName, u.photoURL, u.email, u.bio, u.theme || 'light'));
+      }
+      if (data.posts) {
+        const insert = db.prepare("INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl, hashtags, poll, createdAt, likesCount, commentsCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        data.posts.forEach((p: any) => insert.run(p.id, p.authorId, p.authorName, p.authorPhoto, p.content, p.imageUrl, p.hashtags, p.poll, p.createdAt, p.likesCount, p.commentsCount));
+      }
+      if (data.likes) {
+        const insert = db.prepare("INSERT INTO likes (id, postId, userId) VALUES (?, ?, ?)");
+        data.likes.forEach((l: any) => insert.run(l.id, l.postId, l.userId));
+      }
+      if (data.bookmarks) {
+        const insert = db.prepare("INSERT INTO bookmarks (id, userId, postId, createdAt) VALUES (?, ?, ?, ?)");
+        data.bookmarks.forEach((b: any) => insert.run(b.id, b.userId, b.postId, b.createdAt));
+      }
+      if (data.chats) {
+        const insert = db.prepare("INSERT INTO chats (id, createdAt) VALUES (?, ?)");
+        data.chats.forEach((c: any) => insert.run(c.id, c.createdAt));
+      }
+      if (data.chat_participants) {
+        const insert = db.prepare("INSERT INTO chat_participants (chatId, userId) VALUES (?, ?)");
+        data.chat_participants.forEach((cp: any) => insert.run(cp.chatId, cp.userId));
+      }
+      if (data.messages) {
+        const insert = db.prepare("INSERT INTO messages (id, chatId, senderId, text, createdAt) VALUES (?, ?, ?, ?, ?)");
+        data.messages.forEach((m: any) => insert.run(m.id, m.chatId, m.senderId, m.text, m.createdAt));
+      }
+      if (data.notifications) {
+        const insert = db.prepare("INSERT INTO notifications (id, userId, type, fromId, fromName, fromPhoto, postId, read, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        data.notifications.forEach((n: any) => insert.run(n.id, n.userId, n.type, n.fromId, n.fromName, n.fromPhoto, n.postId, n.read, n.createdAt));
+      }
+    });
+
+    try {
+      runImport();
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Import error:", err);
+      res.status(500).json({ error: "Failed to import database" });
     }
   });
 

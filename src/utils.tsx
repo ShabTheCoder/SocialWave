@@ -1,7 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
-import { auth } from './firebase';
-import { OperationType } from './types';
 
 interface Props {
   children: ReactNode;
@@ -102,8 +100,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-export function handleApiError(error: unknown, operationType: OperationType, path: string | null) {
+export function handleApiError(error: unknown, operation: string, path: string | null) {
   const errorMsg = error instanceof Error ? error.message : String(error);
-  console.error(`API Error [${operationType}] at ${path}:`, errorMsg);
+  console.error(`API Error [${operation}] at ${path}:`, errorMsg);
   throw new Error(errorMsg);
 }

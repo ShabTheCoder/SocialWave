@@ -83,12 +83,23 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
     setLoading(true);
     setError(null);
     try {
+      const pollData: Poll | undefined = showPoll && pollQuestion.trim() ? {
+        question: pollQuestion,
+        options: pollOptions.filter(opt => opt.trim()).map(opt => ({
+          id: Math.random().toString(36).substr(2, 9),
+          text: opt,
+          votes: []
+        })),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours from now
+      } : undefined;
+
       await api.createPost({
         authorId: auth.currentUser.uid,
         authorName: userProfile?.displayName || auth.currentUser.displayName || 'Anonymous',
         authorPhoto: userProfile?.photoURL || auth.currentUser.photoURL || '',
         content,
         imageUrl: image || '',
+        poll: pollData
       });
 
       setContent('');
