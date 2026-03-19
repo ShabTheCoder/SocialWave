@@ -26,6 +26,14 @@ function initDb() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Migration: Add theme column if it doesn't exist
+    const userTableInfo = db.prepare("PRAGMA table_info(users)").all();
+    if (!userTableInfo.some((col: any) => col.name === 'theme')) {
+      db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'");
+      console.log("Added 'theme' column to 'users' table");
+    }
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS posts (
         id TEXT PRIMARY KEY,
@@ -41,6 +49,18 @@ function initDb() {
         FOREIGN KEY (authorId) REFERENCES users(id)
       )
     `);
+
+    // Migration: Add likesCount and commentsCount to posts if they don't exist
+    const postTableInfo = db.prepare("PRAGMA table_info(posts)").all();
+    if (!postTableInfo.some((col: any) => col.name === 'likesCount')) {
+      db.exec("ALTER TABLE posts ADD COLUMN likesCount INTEGER DEFAULT 0");
+      console.log("Added 'likesCount' column to 'posts' table");
+    }
+    if (!postTableInfo.some((col: any) => col.name === 'commentsCount')) {
+      db.exec("ALTER TABLE posts ADD COLUMN commentsCount INTEGER DEFAULT 0");
+      console.log("Added 'commentsCount' column to 'posts' table");
+    }
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS likes (
         id TEXT PRIMARY KEY,
