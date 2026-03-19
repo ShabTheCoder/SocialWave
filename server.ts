@@ -35,6 +35,7 @@ async function initDb() {
         authorPhoto TEXT,
         content TEXT,
         imageUrl TEXT,
+        hashtags TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         likesCount INTEGER DEFAULT 0,
         commentsCount INTEGER DEFAULT 0,
@@ -117,24 +118,52 @@ async function startServer() {
 
   // API Routes
   app.get("/api/posts", async (req, res) => {
+    const { authorId } = req.query;
     try {
-      const result = await turso.execute("SELECT * FROM posts ORDER BY createdAt DESC LIMIT 50");
-      res.json(result.rows);
+      let sql = "SELECT * FROM posts ORDER BY createdAt DESC LIMIT 50";
+      let args: any[] = [];
+      if (authorId) {
+        sql = "SELECT * FROM posts WHERE authorId = ? ORDER BY createdAt DESC LIMIT 50";
+        args = [authorId];
+      }
+      const result = await turso.execute({ sql, args });
+      const posts = result.rows.map(row => ({
+        ...row,
+        hashtags: JSON.parse(row.hashtags as string || "[]")
+      }));
+      res.json(posts);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch posts" });
     }
   });
 
   app.post("/api/posts", async (req, res) => {
-    const { id, authorId, authorName, authorPhoto, content, imageUrl } = req.body;
+    const { id, authorId, authorName, authorPhoto, content, imageUrl, hashtags } = req.body;
     try {
       await turso.execute({
-        sql: "INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl) VALUES (?, ?, ?, ?, ?, ?)",
-        args: [id, authorId, authorName, authorPhoto, content, imageUrl]
+        sql: "INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl, hashtags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        args: [id, authorId, authorName, authorPhoto, content, imageUrl, JSON.stringify(hashtags || [])]
       });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to create post" });
+    }
+  });
+
+  app.get("/api/posts/hashtag/:hashtag", async (req, res) => {
+    const { hashtag } = req.params;
+    try {
+      const result = await turso.execute({
+        sql: "SELECT * FROM posts WHERE hashtags LIKE ? ORDER BY createdAt DESC",
+        args: [`%\"${hashtag}\"%`]
+      });
+      const posts = result.rows.map(row => ({
+        ...row,
+        hashtags: JSON.parse(row.hashtags as string || "[]")
+      }));
+      res.json(posts);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch hashtag posts" });
     }
   });
 

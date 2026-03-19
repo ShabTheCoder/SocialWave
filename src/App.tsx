@@ -72,44 +72,23 @@ function SocialApp() {
     // Initial fetch
     fetchPosts();
 
-    // Real-time listener for the TOP 5 posts only to save quota
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(5));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // We only update the top of the feed if we are at the top
-      // For simplicity, let's just update the list if it's the first load or if we want real-time top
-      const topPosts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Post));
-      
-      setPosts(prev => {
-        const otherPosts = prev.filter(p => !topPosts.find(tp => tp.id === p.id));
-        return [...topPosts, ...otherPosts];
-      });
-    }, (err) => {
-      console.error('Firestore onSnapshot error:', err);
-    });
+    // Real-time polling for local DB (since we are not using Firestore onSnapshot anymore)
+    const interval = setInterval(() => {
+      fetchPosts();
+    }, 10000); // Poll every 10 seconds
 
-    return () => unsubscribe();
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (user) {
-      const q = query(collection(db, 'users', user.uid, 'notifications'), orderBy('createdAt', 'desc'), limit(20));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const newNotifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setNotifications(newNotifs);
-      });
-
-      // Sync user to Firestore
+      // Sync user to Backend
       api.syncUser({
         id: user.uid,
         displayName: user.displayName || 'Anonymous',
         photoURL: user.photoURL || '',
         email: user.email || ''
       }).catch(console.error);
-
-      return () => unsubscribe();
     }
   }, [user]);
 

@@ -1,270 +1,207 @@
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  Timestamp, 
-  serverTimestamp,
-  addDoc,
-  increment,
-  arrayUnion,
-  arrayRemove,
-  startAfter,
-  QueryDocumentSnapshot,
-  DocumentData
-} from 'firebase/firestore';
-import { db } from '../firebase';
 import { Post, OperationType } from '../types';
 
-const handleFirestoreError = (error: any, operationType: OperationType, path: string | null) => {
-  console.error(`Firestore Error [${operationType}] at ${path}:`, error);
+const API_BASE = '/api';
+
+const handleApiError = (error: any, operationType: OperationType, path: string) => {
+  console.error(`API Error [${operationType}] at ${path}:`, error);
   throw error;
 };
 
 export const api = {
-  async getPosts(lastVisible?: QueryDocumentSnapshot<DocumentData>): Promise<{ posts: Post[], lastDoc: QueryDocumentSnapshot<DocumentData> | null }> {
-    const path = 'posts';
+  async getPosts(lastVisible?: any): Promise<{ posts: Post[], lastDoc: any | null }> {
     try {
-      let q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(15));
-      if (lastVisible) {
-        q = query(collection(db, path), orderBy('createdAt', 'desc'), startAfter(lastVisible), limit(15));
-      }
-      const snapshot = await getDocs(q);
-      const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
-      const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-      return { posts, lastDoc };
+      const res = await fetch(`${API_BASE}/posts`);
+      if (!res.ok) throw new Error('Failed to fetch posts');
+      const posts = await res.json();
+      return { posts, lastDoc: null };
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, 'posts');
       return { posts: [], lastDoc: null };
     }
   },
 
   async getPostsByUser(userId: string): Promise<Post[]> {
-    const path = 'posts';
     try {
-      const q = query(
-        collection(db, path), 
-        where('authorId', '==', userId),
-        orderBy('createdAt', 'desc'), 
-        limit(50)
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+      const res = await fetch(`${API_BASE}/posts?authorId=${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch user posts');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `posts/${userId}`);
       return [];
     }
   },
 
-  async getPostsByHashtag(tag: string): Promise<Post[]> {
-    const path = 'posts';
+  async getPostsByHashtag(hashtag: string): Promise<Post[]> {
     try {
-      const q = query(
-        collection(db, path), 
-        where('hashtags', 'array-contains', tag.toLowerCase()),
-        orderBy('createdAt', 'desc'), 
-        limit(20)
-      );
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Post));
+      const res = await fetch(`${API_BASE}/posts/hashtag/${hashtag}`);
+      if (!res.ok) throw new Error('Failed to fetch hashtag posts');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `posts/hashtag/${hashtag}`);
       return [];
     }
   },
 
   async createPost(post: Omit<Post, 'id' | 'createdAt' | 'likesCount' | 'commentsCount'>): Promise<void> {
-    const path = 'posts';
     try {
-      await addDoc(collection(db, path), {
-        ...post,
-        createdAt: serverTimestamp(),
-        likesCount: 0,
-        commentsCount: 0,
-        hashtags: post.content.match(/#\w+/g)?.map(tag => tag.slice(1).toLowerCase()) || []
+      // Extract hashtags from content
+      const hashtags = post.content.match(/#[a-z0-9_]+/gi)?.map(tag => tag.slice(1).toLowerCase()) || [];
+      
+      const res = await fetch(`${API_BASE}/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          ...post,
+          hashtags
+        })
       });
+      if (!res.ok) throw new Error('Failed to create post');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleApiError(error, OperationType.CREATE, 'posts');
     }
   },
 
   async getUser(userId: string): Promise<any> {
-    const path = `users/${userId}`;
     try {
-      const docRef = doc(db, 'users', userId);
-      const docSnap = await getDoc(docRef);
-      return docSnap.exists() ? docSnap.data() : null;
+      const res = await fetch(`${API_BASE}/users/${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch user');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `users/${userId}`);
     }
   },
 
   async syncUser(user: { id: string; displayName: string; photoURL: string; email: string; bio?: string }): Promise<void> {
-    const path = `users/${user.id}`;
     try {
-      const docRef = doc(db, 'users', user.id);
-      const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) {
-        await setDoc(docRef, {
-          ...user,
-          uid: user.id,
-          createdAt: serverTimestamp(),
-          role: 'client'
-        });
-      } else {
-        const existingData = docSnap.data();
-        // Only update if something actually changed to save on write quota
-        const hasChanged = 
-          existingData.displayName !== user.displayName ||
-          existingData.photoURL !== user.photoURL ||
-          existingData.email !== user.email ||
-          (user.bio !== undefined && existingData.bio !== user.bio);
-
-        if (hasChanged) {
-          await updateDoc(docRef, {
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            email: user.email,
-            bio: user.bio || existingData.bio || ''
-          });
-        }
-      }
+      const res = await fetch(`${API_BASE}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user)
+      });
+      if (!res.ok) throw new Error('Failed to sync user');
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, path);
+      handleApiError(error, OperationType.WRITE, `users/${user.id}`);
     }
   },
 
   async likePost(postId: string, userId: string): Promise<void> {
-    const path = `posts/${postId}`;
     try {
-      const postRef = doc(db, 'posts', postId);
-      await updateDoc(postRef, {
-        likesCount: increment(1)
+      const res = await fetch(`${API_BASE}/likes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: crypto.randomUUID(), postId, userId })
       });
-      // In a real app, you'd also track WHO liked it in a subcollection or array
+      if (!res.ok) throw new Error('Failed to like post');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      handleApiError(error, OperationType.UPDATE, `posts/${postId}`);
     }
   },
 
   async unlikePost(postId: string, userId: string): Promise<void> {
-    const path = `posts/${postId}`;
     try {
-      const postRef = doc(db, 'posts', postId);
-      await updateDoc(postRef, {
-        likesCount: increment(-1)
+      const res = await fetch(`${API_BASE}/likes?postId=${postId}&userId=${userId}`, {
+        method: 'DELETE'
       });
+      if (!res.ok) throw new Error('Failed to unlike post');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      handleApiError(error, OperationType.UPDATE, `posts/${postId}`);
     }
   },
 
   async getNotifications(userId: string): Promise<any[]> {
-    const path = `users/${userId}/notifications`;
     try {
-      const q = query(collection(db, 'users', userId, 'notifications'), orderBy('createdAt', 'desc'), limit(20));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const res = await fetch(`${API_BASE}/notifications/${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch notifications');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `notifications/${userId}`);
       return [];
     }
   },
 
   async createNotification(userId: string, notif: any): Promise<void> {
-    const path = `users/${userId}/notifications`;
     try {
-      await addDoc(collection(db, 'users', userId, 'notifications'), {
-        ...notif,
-        createdAt: serverTimestamp(),
-        read: false
+      const res = await fetch(`${API_BASE}/notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: crypto.randomUUID(), userId, ...notif })
       });
+      if (!res.ok) throw new Error('Failed to create notification');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleApiError(error, OperationType.CREATE, `notifications/${userId}`);
     }
   },
 
   async getChats(userId: string): Promise<any[]> {
-    const path = 'chats';
     try {
-      const q = query(collection(db, 'chats'), where('participants', 'array-contains', userId), orderBy('updatedAt', 'desc'));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const res = await fetch(`${API_BASE}/chats/${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch chats');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, 'chats');
       return [];
     }
   },
 
   async getMessages(chatId: string): Promise<any[]> {
-    const path = `chats/${chatId}/messages`;
     try {
-      const q = query(collection(db, 'chats', chatId, 'messages'), orderBy('createdAt', 'asc'), limit(100));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const res = await fetch(`${API_BASE}/messages/${chatId}`);
+      if (!res.ok) throw new Error('Failed to fetch messages');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `messages/${chatId}`);
       return [];
     }
   },
 
   async sendMessage(chatId: string, message: { senderId: string; text: string }): Promise<void> {
-    const path = `chats/${chatId}/messages`;
     try {
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
-        ...message,
-        createdAt: serverTimestamp()
+      const res = await fetch(`${API_BASE}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: crypto.randomUUID(), chatId, ...message })
       });
-      await updateDoc(doc(db, 'chats', chatId), {
-        updatedAt: serverTimestamp(),
-        lastMessage: message.text
-      });
+      if (!res.ok) throw new Error('Failed to send message');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleApiError(error, OperationType.CREATE, `messages/${chatId}`);
     }
   },
 
   async listUsers(): Promise<any[]> {
-    const path = 'users';
     try {
-      const snapshot = await getDocs(collection(db, 'users'));
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const res = await fetch(`${API_BASE}/users`);
+      if (!res.ok) throw new Error('Failed to list users');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, 'users');
       return [];
     }
   },
 
   async createChat(participants: string[]): Promise<string> {
-    const path = 'chats';
     try {
-      const docRef = await addDoc(collection(db, 'chats'), {
-        participants,
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        isGroup: false
+      const id = crypto.randomUUID();
+      const res = await fetch(`${API_BASE}/chats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, participants })
       });
-      return docRef.id;
+      if (!res.ok) throw new Error('Failed to create chat');
+      return id;
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      handleApiError(error, OperationType.CREATE, 'chats');
       return '';
     }
   },
 
   async getBookmarks(userId: string): Promise<any[]> {
-    const path = `users/${userId}/bookmarks`;
     try {
-      const snapshot = await getDocs(collection(db, 'users', userId, 'bookmarks'));
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const res = await fetch(`${API_BASE}/bookmarks/${userId}`);
+      if (!res.ok) throw new Error('Failed to fetch bookmarks');
+      return await res.json();
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+      handleApiError(error, OperationType.GET, `bookmarks/${userId}`);
       return [];
     }
   },
