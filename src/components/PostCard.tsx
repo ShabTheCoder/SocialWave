@@ -1,20 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import { api } from '../services/api';
-import { Heart, MessageCircle, Share2, MoreHorizontal, Trash2, Send, Bookmark, Quote, BarChart2, Check } from 'lucide-react';
+import { Heart, MessageCircle, Share2, MoreHorizontal, Trash2, Send, Bookmark, Quote, BarChart2, Check, ShieldAlert, VolumeX } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Post, Poll } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
+import { censorText } from '../utils';
 
 import { Modal } from './Modal';
 import { CreatePost } from './CreatePost';
 
 interface PostCardProps {
   post: Post;
+  onDelete?: () => void;
 }
 
-export const PostCard: React.FC<PostCardProps> = ({ post }) => {
+export const PostCard: React.FC<PostCardProps> = ({ post, onDelete }) => {
   const navigate = useNavigate();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
@@ -30,6 +32,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [showShareTooltip, setShowShareTooltip] = useState(false);
   const [localPoll, setLocalPoll] = useState(post.poll);
   const [isVoting, setIsVoting] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [isMuting, setIsMuting] = useState(false);
 
   useEffect(() => {
     // Initial check for like status (simplified for now)
@@ -69,7 +73,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   };
 
   const renderContent = (content: string) => {
-    const parts = content.split(/([#@][\w\u0080-\uffff-]+)/g);
+    const censoredContent = censorText(content);
+    const parts = censoredContent.split(/([#@][\w\u0080-\uffff-]+)/g);
     return parts.map((part, i) => {
       if (part.startsWith('#')) {
         const tag = part.substring(1).toLowerCase();
@@ -127,7 +132,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
     try {
       await api.deletePost(post.id);
       setShowDeleteModal(false);
-      window.location.reload();
+      if (onDelete) onDelete();
+      else window.location.reload();
     } catch (error) {
       console.error('Error deleting post:', error);
     } finally {
@@ -145,6 +151,41 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
     }
   };
 
+  const handleBlock = async () => {
+    if (!auth.currentUser || isBlocking) return;
+    setIsBlocking(true);
+    try {
+      await api.blockUser(auth.currentUser.uid, post.authorId);
+      setShowOptions(false);
+      if (onDelete) onDelete(); // Refresh feed
+    } catch (error) {
+      console.error('Error blocking user:', error);
+    } finally {
+      setIsBlocking(false);
+    }
+  };
+
+  const handleMute = async () => {
+    if (!auth.currentUser || isMuting) return;
+    setIsMuting(true);
+    try {
+      await api.muteUser(auth.currentUser.uid, post.authorId);
+      setShowOptions(false);
+      if (onDelete) onDelete(); // Refresh feed
+    } catch (error) {
+      console.error('Error muting user:', error);
+    } finally {
+      setIsMuting(false);
+    }
+  };
+
+  const isOnline = () => {
+    if (!post.authorLastActive) return false;
+    const lastActive = new Date(post.authorLastActive);
+    const now = new Date();
+    return (now.getTime() - lastActive.getTime()) < 5 * 60 * 1000; // 5 minutes
+  };
+
   const formattedDate = () => {
     try {
       if (!post.createdAt) return 'Just now';
@@ -158,34 +199,45 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
   return (
     <div className="bg-white dark:bg-stone-900 rounded-[2rem] shadow-xl shadow-black/5 dark:shadow-white/5 border border-black/5 dark:border-white/5 mb-8 overflow-hidden card-hover">
-      <div className="p-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="p-4 sm:p-6 flex items-center justify-between">
+        <div className="flex items-center gap-3 sm:gap-4">
           <Link to={`/profile/${post.authorId}`} className="relative group">
             <img
               src={post.authorPhoto || `https://ui-avatars.com/api/?name=${post.authorName}`}
-              className="w-12 h-12 rounded-2xl object-cover border border-black/5 dark:border-white/5 transition-transform group-hover:scale-105"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-cover border border-black/5 dark:border-white/5 transition-transform group-hover:scale-105"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white dark:border-stone-900 rounded-full"></div>
+            {isOnline() && (
+              <div className="absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-emerald-500 border-2 border-white dark:border-stone-900 rounded-full"></div>
+            )}
           </Link>
-          <div>
-            <Link to={`/profile/${post.authorId}`} className="font-bold font-display text-stone-900 dark:text-stone-50 leading-none mb-1 hover:underline block">{post.authorName}</Link>
-            <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mb-1">@{post.authorName.toLowerCase().replace(/\s+/g, '')}</p>
-            <p className="text-[10px] uppercase tracking-widest font-bold text-stone-300 dark:text-stone-600">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              <Link to={`/profile/${post.authorId}`} className="font-bold font-display text-stone-900 dark:text-stone-50 leading-none hover:underline truncate">{post.authorName}</Link>
+              {post.authorIsVerified && (
+                <div className="bg-emerald-500 rounded-full p-0.5" title="Verified User">
+                  <Check size={10} className="text-white" strokeWidth={4} />
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] sm:text-xs font-medium text-stone-500 dark:text-stone-400 mb-1 truncate">@{post.authorName.toLowerCase().replace(/\s+/g, '')}</p>
+            <p className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-stone-300 dark:text-stone-600">
               {formattedDate()}
             </p>
           </div>
         </div>
         
-        {auth.currentUser?.uid === post.authorId && (
+        {auth.currentUser && (
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowDeleteModal(true)}
-              className="p-2.5 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors text-stone-400 hover:text-rose-600"
-              title="Delete Post"
-            >
-              <Trash2 size={20} />
-            </button>
+            {auth.currentUser.uid === post.authorId && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="p-2.5 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors text-stone-400 hover:text-rose-600"
+                title="Delete Post"
+              >
+                <Trash2 size={20} />
+              </button>
+            )}
             <div className="relative">
               <button
                 onClick={() => setShowOptions(!showOptions)}
@@ -195,16 +247,37 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
               </button>
               {showOptions && (
                 <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-stone-800 rounded-2xl shadow-2xl border border-black/5 dark:border-white/5 py-2 z-10 overflow-hidden">
-                  <button
-                    onClick={() => {
-                      setShowOptions(false);
-                      setShowDeleteModal(true);
-                    }}
-                    className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 font-bold transition-colors"
-                  >
-                    <Trash2 size={16} />
-                    Delete Post
-                  </button>
+                  {auth.currentUser.uid === post.authorId ? (
+                    <button
+                      onClick={() => {
+                        setShowOptions(false);
+                        setShowDeleteModal(true);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 font-bold transition-colors"
+                    >
+                      <Trash2 size={16} />
+                      Delete Post
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleMute}
+                        disabled={isMuting}
+                        className="w-full px-4 py-2 text-left text-sm text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-700 flex items-center gap-2 font-bold transition-colors"
+                      >
+                        <VolumeX size={16} />
+                        {isMuting ? 'Muting...' : 'Mute User'}
+                      </button>
+                      <button
+                        onClick={handleBlock}
+                        disabled={isBlocking}
+                        className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 flex items-center gap-2 font-bold transition-colors"
+                      >
+                        <ShieldAlert size={16} />
+                        {isBlocking ? 'Blocking...' : 'Block User'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -212,16 +285,16 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
         )}
       </div>
 
-      <div className="px-6 pb-4">
-        <p className="text-stone-800 dark:text-stone-200 whitespace-pre-wrap leading-relaxed text-lg">
+      <div className="px-4 sm:px-6 pb-4">
+        <p className="text-stone-800 dark:text-stone-200 whitespace-pre-wrap leading-relaxed text-base sm:text-lg">
           {renderContent(post.content)}
         </p>
       </div>
 
       {localPoll && (
-        <div className="px-6 pb-6 space-y-3">
+        <div className="px-4 sm:px-6 pb-6 space-y-3">
           <div className="p-4 bg-stone-50 dark:bg-stone-800/50 rounded-2xl border border-black/5 dark:border-white/5">
-            <h4 className="font-bold text-stone-900 dark:text-stone-50 mb-4">{localPoll.question}</h4>
+            <h4 className="font-bold text-stone-900 dark:text-stone-50 mb-4 text-sm sm:text-base">{localPoll.question}</h4>
             <div className="space-y-3">
               {localPoll.options.map((option) => {
                 const totalVotes = localPoll.options.reduce((acc, opt) => acc + (opt.votes?.length || 0), 0);
@@ -265,10 +338,10 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
       {/* Quoted Post Placeholder */}
       {post.quotedPost && (
-        <div className="px-6 pb-4">
+        <div className="px-4 sm:px-6 pb-4">
           <div className="p-4 bg-stone-50 dark:bg-stone-800/50 rounded-2xl border border-black/5 dark:border-white/5 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors cursor-pointer">
             <Link to={`/profile/${post.quotedPost.authorId}`} className="flex items-center gap-2 mb-2 group">
-              <img src={post.quotedPost.authorPhoto} alt="" className="w-5 h-5 rounded-full" />
+              <img src={post.quotedPost.authorPhoto || `https://ui-avatars.com/api/?name=${post.quotedPost.authorName}`} alt="" className="w-5 h-5 rounded-full" />
               <span className="text-xs font-bold text-stone-900 dark:text-stone-50 group-hover:underline">{post.quotedPost.authorName}</span>
             </Link>
             <p className="text-sm text-stone-600 dark:text-stone-400 line-clamp-3">{post.quotedPost.content}</p>
@@ -277,17 +350,17 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
       )}
 
       {post.imageUrl && (
-        <div className="px-6 pb-6">
+        <div className="px-4 sm:px-6 pb-6">
           <img
-            src={post.imageUrl}
+            src={post.imageUrl || undefined}
             alt="Post attachment"
-            className="w-full rounded-[1.5rem] object-cover max-h-[600px] border border-black/5 dark:border-white/5 shadow-inner"
+            className="w-full rounded-[1.5rem] object-cover max-h-[400px] sm:max-h-[600px] border border-black/5 dark:border-white/5 shadow-inner"
             referrerPolicy="no-referrer"
           />
         </div>
       )}
 
-      <div className="px-6 py-4 border-t border-black/5 dark:border-white/5 flex items-center gap-8">
+      <div className="px-4 sm:px-6 py-4 border-t border-black/5 dark:border-white/5 flex items-center gap-4 sm:gap-8">
         <button
           onClick={handleLike}
           className={`flex items-center gap-2.5 transition-all ${
@@ -365,7 +438,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
             exit={{ height: 0, opacity: 0 }}
             className="bg-stone-50 dark:bg-stone-950/50 border-t border-black/5 dark:border-white/5 overflow-hidden"
           >
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6">
               {/* Comment Input */}
               <form onSubmit={handleAddComment} className="flex gap-3">
                 <img

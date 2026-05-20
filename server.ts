@@ -11,10 +11,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const db = new Database("local.db");
-db.pragma('journal_mode = WAL');
+// db.pragma('journal_mode = WAL'); // Disable WAL for now to see if it helps with "Failed to fetch"
 
 function initDb() {
   try {
+    console.log("Initializing Local SQLite DB...");
     db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -23,15 +24,44 @@ function initDb() {
         email TEXT,
         bio TEXT,
         theme TEXT DEFAULT 'light',
+        isVerified INTEGER DEFAULT 0,
+        blockedUsers TEXT DEFAULT '[]',
+        mutedUsers TEXT DEFAULT '[]',
+        lastActive DATETIME DEFAULT CURRENT_TIMESTAMP,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Migration: Add theme column if it doesn't exist
+    // Migration: Add new columns to users if they don't exist
     const userTableInfo = db.prepare("PRAGMA table_info(users)").all();
     if (!userTableInfo.some((col: any) => col.name === 'theme')) {
       db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'");
     }
+    if (!userTableInfo.some((col: any) => col.name === 'isVerified')) {
+      db.exec("ALTER TABLE users ADD COLUMN isVerified INTEGER DEFAULT 0");
+    }
+    if (!userTableInfo.some((col: any) => col.name === 'blockedUsers')) {
+      db.exec("ALTER TABLE users ADD COLUMN blockedUsers TEXT DEFAULT '[]'");
+    }
+    if (!userTableInfo.some((col: any) => col.name === 'mutedUsers')) {
+      db.exec("ALTER TABLE users ADD COLUMN mutedUsers TEXT DEFAULT '[]'");
+    }
+    if (!userTableInfo.some((col: any) => col.name === 'lastActive')) {
+      db.exec("ALTER TABLE users ADD COLUMN lastActive DATETIME DEFAULT CURRENT_TIMESTAMP");
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS stories (
+        id TEXT PRIMARY KEY,
+        authorId TEXT,
+        authorName TEXT,
+        authorPhoto TEXT,
+        imageUrl TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expiresAt DATETIME,
+        FOREIGN KEY (authorId) REFERENCES users(id)
+      )
+    `);
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS ads (
@@ -207,13 +237,20 @@ async function startServer() {
 
   // API Routes
   app.get("/api/posts", (req, res) => {
-    const { authorId } = req.query;
+    const { authorId, search } = req.query;
     try {
       let posts;
+      const baseQuery = `
+        SELECT p.*, u.isVerified as authorIsVerified, u.lastActive as authorLastActive 
+        FROM posts p 
+        JOIN users u ON p.authorId = u.id
+      `;
       if (authorId) {
-        posts = db.prepare("SELECT * FROM posts WHERE authorId = ? ORDER BY createdAt DESC LIMIT 50").all(authorId);
+        posts = db.prepare(`${baseQuery} WHERE p.authorId = ? ORDER BY p.createdAt DESC LIMIT 50`).all(authorId);
+      } else if (search) {
+        posts = db.prepare(`${baseQuery} WHERE p.content LIKE ? ORDER BY p.createdAt DESC LIMIT 50`).all(`%${search}%`);
       } else {
-        posts = db.prepare("SELECT * FROM posts ORDER BY createdAt DESC LIMIT 50").all();
+        posts = db.prepare(`${baseQuery} ORDER BY p.createdAt DESC LIMIT 50`).all();
       }
       
       const formattedPosts = posts.map((row: any) => ({
@@ -373,6 +410,27 @@ async function startServer() {
     }
   });
 
+  app.patch("/api/ads/:id", (req, res) => {
+    const { id } = req.params;
+    const { userId, ad } = req.body;
+    // Admin check
+    const user = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as any;
+    if (!user || user.email !== "gopinathmanjula7@gmail.com") {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    try {
+      db.prepare(`
+        UPDATE ads 
+        SET title = ?, description = ?, imageUrl = ?, ctaText = ?, ctaUrl = ?, type = ?
+        WHERE id = ?
+      `).run(ad.title, ad.description, ad.imageUrl, ad.ctaText, ad.ctaUrl, ad.type, id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update ad" });
+    }
+  });
+
   app.get("/api/users/:id", (req, res) => {
     try {
       const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
@@ -384,18 +442,84 @@ async function startServer() {
 
   app.post("/api/users", (req, res) => {
     const { id, displayName, photoURL, email, bio, theme } = req.body;
+    const lastActive = new Date().toISOString();
     try {
       const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
       if (existing) {
-        db.prepare("UPDATE users SET displayName = ?, photoURL = ?, bio = ?, theme = ? WHERE id = ?")
-          .run(displayName, photoURL, bio, theme || 'light', id);
+        db.prepare("UPDATE users SET displayName = ?, photoURL = ?, bio = ?, theme = ?, lastActive = ? WHERE id = ?")
+          .run(displayName, photoURL, bio, theme || 'light', lastActive, id);
       } else {
-        db.prepare("INSERT INTO users (id, displayName, photoURL, email, bio, theme) VALUES (?, ?, ?, ?, ?, ?)")
-          .run(id, displayName, photoURL, email, bio, theme || 'light');
+        db.prepare("INSERT INTO users (id, displayName, photoURL, email, bio, theme, lastActive) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(id, displayName, photoURL, email, bio, theme || 'light', lastActive);
       }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to sync user" });
+    }
+  });
+
+  app.post("/api/users/:id/verify", (req, res) => {
+    const { id } = req.params;
+    try {
+      db.prepare("UPDATE users SET isVerified = 1 WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to verify user" });
+    }
+  });
+
+  app.post("/api/users/:id/block", (req, res) => {
+    const { id } = req.params;
+    const { targetId } = req.body;
+    try {
+      const user = db.prepare("SELECT blockedUsers FROM users WHERE id = ?").get(id) as any;
+      const blocked = JSON.parse(user.blockedUsers || "[]");
+      if (!blocked.includes(targetId)) {
+        blocked.push(targetId);
+        db.prepare("UPDATE users SET blockedUsers = ? WHERE id = ?").run(JSON.stringify(blocked), id);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to block user" });
+    }
+  });
+
+  app.post("/api/users/:id/mute", (req, res) => {
+    const { id } = req.params;
+    const { targetId } = req.body;
+    try {
+      const user = db.prepare("SELECT mutedUsers FROM users WHERE id = ?").get(id) as any;
+      const muted = JSON.parse(user.mutedUsers || "[]");
+      if (!muted.includes(targetId)) {
+        muted.push(targetId);
+        db.prepare("UPDATE users SET mutedUsers = ? WHERE id = ?").run(JSON.stringify(muted), id);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to mute user" });
+    }
+  });
+
+  app.get("/api/stories", (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const stories = db.prepare("SELECT * FROM stories WHERE expiresAt > ? ORDER BY createdAt DESC").all(now);
+      res.json(stories);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch stories" });
+    }
+  });
+
+  app.post("/api/stories", (req, res) => {
+    const { id, authorId, authorName, authorPhoto, imageUrl } = req.body;
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    try {
+      db.prepare("INSERT INTO stories (id, authorId, authorName, authorPhoto, imageUrl, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, authorId, authorName, authorPhoto, imageUrl, createdAt, expiresAt);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to create story" });
     }
   });
 
@@ -434,6 +558,7 @@ async function startServer() {
       const chat_participants = db.prepare("SELECT * FROM chat_participants").all();
       const messages = db.prepare("SELECT * FROM messages").all();
       const notifications = db.prepare("SELECT * FROM notifications").all();
+      const ads = db.prepare("SELECT * FROM ads").all();
       
       res.json({
         version: "1.0",
@@ -446,7 +571,8 @@ async function startServer() {
           chats,
           chat_participants,
           messages,
-          notifications
+          notifications,
+          ads
         }
       });
     } catch (err) {
@@ -470,12 +596,17 @@ async function startServer() {
       db.prepare("DELETE FROM bookmarks").run();
       db.prepare("DELETE FROM likes").run();
       db.prepare("DELETE FROM posts").run();
+      db.prepare("DELETE FROM ads").run();
       db.prepare("DELETE FROM users").run();
 
       // Insert new data
       if (data.users) {
         const insert = db.prepare("INSERT INTO users (id, displayName, photoURL, email, bio, theme) VALUES (?, ?, ?, ?, ?, ?)");
         data.users.forEach((u: any) => insert.run(u.id, u.displayName, u.photoURL, u.email, u.bio, u.theme || 'light'));
+      }
+      if (data.ads) {
+        const insert = db.prepare("INSERT INTO ads (id, title, description, imageUrl, ctaText, ctaUrl, type, active, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        data.ads.forEach((a: any) => insert.run(a.id, a.title, a.description, a.imageUrl, a.ctaText, a.ctaUrl, a.type, a.active, a.createdAt));
       }
       if (data.posts) {
         const insert = db.prepare("INSERT INTO posts (id, authorId, authorName, authorPhoto, content, imageUrl, hashtags, poll, createdAt, likesCount, commentsCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -490,8 +621,8 @@ async function startServer() {
         data.bookmarks.forEach((b: any) => insert.run(b.id, b.userId, b.postId, b.createdAt));
       }
       if (data.chats) {
-        const insert = db.prepare("INSERT INTO chats (id, createdAt) VALUES (?, ?)");
-        data.chats.forEach((c: any) => insert.run(c.id, c.createdAt));
+        const insert = db.prepare("INSERT INTO chats (id, lastMessageAt, unreadCount) VALUES (?, ?, ?)");
+        data.chats.forEach((c: any) => insert.run(c.id, c.lastMessageAt, c.unreadCount));
       }
       if (data.chat_participants) {
         const insert = db.prepare("INSERT INTO chat_participants (chatId, userId) VALUES (?, ?)");

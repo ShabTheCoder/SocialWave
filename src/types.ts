@@ -5,6 +5,20 @@ export interface UserProfile {
   photoURL: string | null;
   bio?: string;
   createdAt: any;
+  isVerified?: boolean;
+  blockedUsers?: string[];
+  mutedUsers?: string[];
+  lastActive?: string;
+}
+
+export interface Story {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto: string;
+  imageUrl: string;
+  createdAt: any;
+  expiresAt: any;
 }
 
 export interface PollOption {
@@ -35,6 +49,8 @@ export interface Post {
   mentions?: string[];
   mentionMap?: Record<string, string>;
   poll?: Poll;
+  authorIsVerified?: boolean;
+  authorLastActive?: string;
 }
 
 export interface Comment {

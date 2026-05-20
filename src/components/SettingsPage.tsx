@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../firebase';
 import { api } from '../services/api';
-import { Download, Upload, Database, AlertTriangle, CheckCircle2, Loader2, Plus, Trash2, ExternalLink, Megaphone } from 'lucide-react';
+import { Download, Upload, Database, AlertTriangle, CheckCircle2, Loader2, Plus, Trash2, ExternalLink, Megaphone, Eye, X, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AdCard } from './AdCard';
 
 export const SettingsPage: React.FC = () => {
   const [user, loadingAuth] = useAuthState(auth);
@@ -11,6 +12,8 @@ export const SettingsPage: React.FC = () => {
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [ads, setAds] = useState<any[]>([]);
   const [showAdForm, setShowAdForm] = useState(false);
+  const [editingAd, setEditingAd] = useState<any | null>(null);
+  const [previewAd, setPreviewAd] = useState<any | null>(null);
   const [newAd, setNewAd] = useState({
     title: '',
     description: '',
@@ -40,20 +43,40 @@ export const SettingsPage: React.FC = () => {
     if (!user) return;
     setLoading(true);
     try {
-      await api.createAd(user.uid, {
-        ...newAd,
-        id: Math.random().toString(36).substr(2, 9)
-      });
+      if (editingAd) {
+        await api.updateAd(user.uid, editingAd.id, newAd);
+        setStatus({ type: 'success', message: 'Ad updated successfully!' });
+      } else {
+        await api.createAd(user.uid, {
+          ...newAd,
+          id: Math.random().toString(36).substr(2, 9)
+        });
+        setStatus({ type: 'success', message: 'Ad created successfully!' });
+      }
       setNewAd({ title: '', description: '', imageUrl: '', ctaText: 'Learn More', ctaUrl: '', type: 'feed' });
       setShowAdForm(false);
+      setEditingAd(null);
       fetchAds();
-      setStatus({ type: 'success', message: 'Ad created successfully!' });
     } catch (err) {
       console.error(err);
-      setStatus({ type: 'error', message: 'Failed to create ad.' });
+      setStatus({ type: 'error', message: editingAd ? 'Failed to update ad.' : 'Failed to create ad.' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditAd = (ad: any) => {
+    setEditingAd(ad);
+    setNewAd({
+      title: ad.title,
+      description: ad.description,
+      imageUrl: ad.imageUrl,
+      ctaText: ad.ctaText,
+      ctaUrl: ad.ctaUrl,
+      type: ad.type
+    });
+    setShowAdForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDeleteAd = async (adId: string) => {
@@ -157,7 +180,7 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-stone-900 rounded-[2rem] border border-black/5 dark:border-white/5 overflow-hidden">
-        <div className="p-8 space-y-8">
+        <div className="p-6 sm:p-8 space-y-8">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-stone-100 dark:bg-stone-800 rounded-2xl flex items-center justify-center">
               <Database className="text-stone-400" size={24} />
@@ -218,7 +241,7 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-stone-900 rounded-[2rem] border border-black/5 dark:border-white/5 overflow-hidden">
-        <div className="p-8 space-y-8">
+        <div className="p-6 sm:p-8 space-y-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-stone-100 dark:bg-stone-800 rounded-2xl flex items-center justify-center">
@@ -230,10 +253,17 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
             <button 
-              onClick={() => setShowAdForm(!showAdForm)}
+              onClick={() => {
+                if (showAdForm && editingAd) {
+                  setEditingAd(null);
+                  setNewAd({ title: '', description: '', imageUrl: '', ctaText: 'Learn More', ctaUrl: '', type: 'feed' });
+                } else {
+                  setShowAdForm(!showAdForm);
+                }
+              }}
               className="p-3 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-2xl hover:scale-105 transition-transform"
             >
-              <Plus size={20} />
+              {showAdForm && editingAd ? <X size={20} /> : <Plus size={20} />}
             </button>
           </div>
 
@@ -285,22 +315,32 @@ export const SettingsPage: React.FC = () => {
                   onChange={e => setNewAd({...newAd, ctaUrl: e.target.value})}
                   className="w-full px-4 py-3 bg-stone-50 dark:bg-stone-800 rounded-2xl border-none focus:ring-2 focus:ring-stone-900/5 transition-all"
                 />
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-4">
                   <select 
                     value={newAd.type}
                     onChange={e => setNewAd({...newAd, type: e.target.value})}
-                    className="px-4 py-3 bg-stone-50 dark:bg-stone-800 rounded-2xl border-none focus:ring-2 focus:ring-stone-900/5 transition-all"
+                    className="w-full sm:w-auto px-4 py-3 bg-stone-50 dark:bg-stone-800 rounded-2xl border-none focus:ring-2 focus:ring-stone-900/5 transition-all"
                   >
                     <option value="feed">Feed Ad</option>
                     <option value="sidebar">Sidebar Ad</option>
                   </select>
-                  <button 
-                    type="submit"
-                    disabled={loading}
-                    className="flex-1 py-3 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-2xl font-bold hover:bg-stone-800 dark:hover:bg-stone-200 transition-all"
-                  >
-                    Create Ad
-                  </button>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    <button 
+                      type="button"
+                      onClick={() => setPreviewAd(newAd)}
+                      className="flex-1 sm:flex-none px-6 py-3 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 rounded-2xl font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Eye size={18} />
+                      Preview
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={loading}
+                      className="flex-[2] sm:flex-1 py-3 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-2xl font-bold hover:bg-stone-800 dark:hover:bg-stone-200 transition-all"
+                    >
+                      {editingAd ? 'Update Ad' : 'Create Ad'}
+                    </button>
+                  </div>
                 </div>
               </motion.form>
             )}
@@ -313,23 +353,39 @@ export const SettingsPage: React.FC = () => {
               </div>
             ) : (
               ads.map(ad => (
-                <div key={ad.id} className="flex items-center gap-4 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-3xl border border-black/5 dark:border-white/5 group">
-                  <div className="w-16 h-16 rounded-2xl overflow-hidden bg-stone-200 dark:bg-stone-700 shrink-0">
-                    <img src={ad.imageUrl} alt={ad.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-stone-900 dark:text-stone-50 truncate">{ad.title}</h4>
-                      <span className="px-2 py-0.5 bg-stone-200 dark:bg-stone-700 rounded-full text-[10px] font-bold text-stone-500 uppercase tracking-wider">
-                        {ad.type}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${ad.active ? 'bg-emerald-100 text-emerald-600' : 'bg-stone-200 text-stone-500'}`}>
-                        {ad.active ? 'Active' : 'Inactive'}
-                      </span>
+                <div key={ad.id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-3xl border border-black/5 dark:border-white/5 group relative">
+                  <div className="flex items-center gap-4 w-full">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden bg-stone-200 dark:bg-stone-700 shrink-0">
+                      <img src={ad.imageUrl || undefined} alt={ad.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     </div>
-                    <p className="text-xs text-stone-400 truncate">{ad.description}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-stone-900 dark:text-stone-50 truncate max-w-[120px] sm:max-w-none">{ad.title}</h4>
+                        <span className="px-2 py-0.5 bg-stone-200 dark:bg-stone-700 rounded-full text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                          {ad.type}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${ad.active ? 'bg-emerald-100 text-emerald-600' : 'bg-stone-200 text-stone-500'}`}>
+                          {ad.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-400 truncate">{ad.description}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-none border-black/5 dark:border-white/5">
+                    <button 
+                      onClick={() => setPreviewAd(ad)}
+                      className="p-2 text-stone-400 hover:text-stone-900 dark:hover:text-stone-50 transition-colors"
+                      title="Preview Ad"
+                    >
+                      <Eye size={18} />
+                    </button>
+                    <button 
+                      onClick={() => handleEditAd(ad)}
+                      className="p-2 text-stone-400 hover:text-stone-900 dark:hover:text-stone-50 transition-colors"
+                      title="Edit Ad"
+                    >
+                      <Pencil size={18} />
+                    </button>
                     <button 
                       onClick={() => handleToggleAd(ad.id)}
                       className={`p-2 rounded-xl transition-colors ${ad.active ? 'text-emerald-500 hover:bg-emerald-50' : 'text-stone-400 hover:bg-stone-100'}`}
@@ -362,6 +418,39 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {previewAd && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-lg relative"
+            >
+              <button 
+                onClick={() => setPreviewAd(null)}
+                className="absolute -top-12 right-0 p-2 text-white/60 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-white/60 px-2">
+                  <span className="text-xs font-bold uppercase tracking-widest">Ad Preview ({previewAd.type})</span>
+                </div>
+                <AdCard 
+                  title={previewAd.title || 'Ad Title'}
+                  description={previewAd.description || 'Ad description will appear here...'}
+                  imageUrl={previewAd.imageUrl || 'https://picsum.photos/seed/preview/800/600'}
+                  ctaText={previewAd.ctaText || 'Learn More'}
+                  ctaUrl={previewAd.ctaUrl || '#'}
+                  compact={previewAd.type === 'sidebar'}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

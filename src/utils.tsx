@@ -105,3 +105,24 @@ export function handleApiError(error: unknown, operation: string, path: string |
   console.error(`API Error [${operation}] at ${path}:`, errorMsg);
   throw new Error(errorMsg);
 }
+
+export function censorText(text: string): string {
+  if (!text) return text;
+  
+  const badWords = [
+    { word: 'shit', replacement: 's--t' },
+    { word: 'fuck', replacement: 'f--k' },
+    { word: 'bitch', replacement: 'b---h' },
+    { word: 'asshole', replacement: 'a-----e' },
+    { word: 'damn', replacement: 'd--n' },
+    { word: 'hell', replacement: 'h--l' }
+  ];
+
+  let censored = text;
+  badWords.forEach(({ word, replacement }) => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    censored = censored.replace(regex, replacement);
+  });
+
+  return censored;
+}

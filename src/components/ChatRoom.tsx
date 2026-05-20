@@ -6,6 +6,7 @@ import { ArrowLeft, Send, MoreHorizontal, Image as ImageIcon, Smile, X, Trash2, 
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { Modal } from './Modal';
+import { censorText } from '../utils';
 
 const EMOJIS = ['❤️', '😂', '🔥', '🙌', '✨', '😍', '🤔', '👍', '🙏', '💯', '😎', '😢', '🎉', '🚀', '👀', '💡'];
 
@@ -241,7 +242,7 @@ export const ChatRoom: React.FC = () => {
                       referrerPolicy="no-referrer"
                     />
                   )}
-                  {msg.content}
+                  {censorText(msg.text || msg.content)}
                 </div>
                 <p className={`text-[9px] font-bold uppercase tracking-widest text-stone-400 ${isMe ? 'text-right' : 'text-left'}`}>
                   {msg.createdAt ? formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true }) : 'now'}

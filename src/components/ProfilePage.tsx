@@ -21,10 +21,14 @@ import {
   Trash2,
   AlertCircle,
   RefreshCcw,
-  MessageCircle
+  MessageCircle,
+  ShieldAlert,
+  VolumeX,
+  BadgeCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, formatDistanceToNow } from 'date-fns';
+import { censorText } from '../utils';
 
 import { Modal } from './Modal';
 
@@ -44,6 +48,9 @@ export const ProfilePage: React.FC = () => {
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [isMuting, setIsMuting] = useState(false);
 
   useEffect(() => {
     if (userId) {
@@ -127,6 +134,52 @@ export const ProfilePage: React.FC = () => {
     navigate(`/messages/${userId}`);
   };
 
+  const handleVerify = async () => {
+    if (!currentUser || currentUser.uid !== userId || isVerifying) return;
+    setIsVerifying(true);
+    try {
+      await api.verifyUser(userId);
+      setUserData(prev => prev ? { ...prev, isVerified: true } : null);
+    } catch (error) {
+      console.error('Error verifying user:', error);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleBlock = async () => {
+    if (!currentUser || !userId || currentUser.uid === userId || isBlocking) return;
+    setIsBlocking(true);
+    try {
+      await api.blockUser(currentUser.uid, userId);
+      navigate('/');
+    } catch (error) {
+      console.error('Error blocking user:', error);
+    } finally {
+      setIsBlocking(false);
+    }
+  };
+
+  const handleMute = async () => {
+    if (!currentUser || !userId || currentUser.uid === userId || isMuting) return;
+    setIsMuting(true);
+    try {
+      await api.muteUser(currentUser.uid, userId);
+      navigate('/');
+    } catch (error) {
+      console.error('Error muting user:', error);
+    } finally {
+      setIsMuting(false);
+    }
+  };
+
+  const isOnline = () => {
+    if (!userData?.lastActive) return false;
+    const lastActive = new Date(userData.lastActive);
+    const now = new Date();
+    return (now.getTime() - lastActive.getTime()) < 5 * 60 * 1000; // 5 minutes
+  };
+
   if (loadingUser) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-6">
@@ -168,6 +221,9 @@ export const ProfilePage: React.FC = () => {
                 referrerPolicy="no-referrer"
                 onClick={() => isEditing && document.getElementById('profile-pic-input')?.click()}
               />
+              {isOnline() && (
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 border-4 border-white dark:border-stone-900 rounded-full shadow-lg"></div>
+              )}
               {isEditing && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="bg-black/40 p-2 rounded-full text-white">
@@ -187,13 +243,25 @@ export const ProfilePage: React.FC = () => {
             
             <div className="flex gap-3">
               {currentUser?.uid === userId ? (
-                <button 
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="px-6 py-2.5 bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-50 rounded-full text-sm font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all flex items-center gap-2"
-                >
-                  {isEditing ? <X size={18} /> : <Edit3 size={18} />}
-                  {isEditing ? 'Cancel' : 'Edit Profile'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="px-6 py-2.5 bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-50 rounded-full text-sm font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all flex items-center gap-2"
+                  >
+                    {isEditing ? <X size={18} /> : <Edit3 size={18} />}
+                    {isEditing ? 'Cancel' : 'Edit Profile'}
+                  </button>
+                  {!userData.isVerified && !isEditing && (
+                    <button
+                      onClick={handleVerify}
+                      disabled={isVerifying}
+                      className="px-6 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+                    >
+                      <BadgeCheck size={18} />
+                      {isVerifying ? 'Verifying...' : 'Get Verified'}
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="flex items-center gap-3">
                   <button 
@@ -224,6 +292,22 @@ export const ProfilePage: React.FC = () => {
                     <MessageCircle size={18} />
                     Message
                   </button>
+                  <button
+                    onClick={handleMute}
+                    disabled={isMuting}
+                    title="Mute User"
+                    className="p-2.5 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 rounded-full font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all shadow-lg shadow-stone-900/5"
+                  >
+                    <VolumeX size={20} />
+                  </button>
+                  <button
+                    onClick={handleBlock}
+                    disabled={isBlocking}
+                    title="Block User"
+                    className="p-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-full font-bold hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all shadow-lg shadow-rose-900/5"
+                  >
+                    <ShieldAlert size={20} />
+                  </button>
                 </div>
               )}
             </div>
@@ -231,7 +315,14 @@ export const ProfilePage: React.FC = () => {
 
           <div className="space-y-4">
             <div>
-              <h2 className="text-3xl font-display font-bold text-stone-900 dark:text-stone-50">{userData.displayName}</h2>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-3xl font-display font-bold text-stone-900 dark:text-stone-50">{userData.displayName}</h2>
+                {userData.isVerified && (
+                  <div className="bg-emerald-500 rounded-full p-1" title="Verified User">
+                    <Check size={14} className="text-white" strokeWidth={4} />
+                  </div>
+                )}
+              </div>
               <p className="text-stone-400 dark:text-stone-500 font-medium">@{userData.displayName?.toLowerCase().replace(/\s+/g, '')}</p>
             </div>
 
@@ -283,7 +374,7 @@ export const ProfilePage: React.FC = () => {
               <div className="space-y-4">
                 {userData.bio ? (
                   <p className="text-stone-800 dark:text-stone-200 leading-relaxed text-xl max-w-2xl border-l-4 border-stone-200 dark:border-stone-700 pl-6 py-2">
-                    {userData.bio}
+                    {censorText(userData.bio)}
                   </p>
                 ) : (
                   <p className="text-stone-400 dark:text-stone-500 font-medium text-lg">

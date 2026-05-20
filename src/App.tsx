@@ -7,9 +7,12 @@ import { LoginPage } from './components/LoginPage';
 import { CreatePost } from './components/CreatePost';
 import { PostCard } from './components/PostCard';
 import { ProfilePage } from './components/ProfilePage';
+import { PrivacyPolicyPage } from './components/PrivacyPolicyPage';
 import { NotificationsPage } from './components/NotificationsPage';
 import { MessagesPage } from './components/MessagesPage';
 import { ChatRoom } from './components/ChatRoom';
+import { StoriesBar } from './components/StoriesBar';
+import { Chatbot } from './components/Chatbot';
 import { HashtagPage } from './components/HashtagPage';
 import { TrendingHashtags } from './components/TrendingHashtags';
 import { TrendingPage } from './components/TrendingPage';
@@ -18,7 +21,7 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { Post, Ad } from './types';
 import { AdCard } from './components/AdCard';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { Moon, Sun, Waves, TrendingUp, Users, Bookmark, Settings, Bell, Search, Compass, AlertCircle, RefreshCcw, User as UserIcon, MessageSquare, Loader2 } from 'lucide-react';
+import { Moon, Sun, Waves, TrendingUp, Users, Bookmark, Settings, Bell, Search, Compass, AlertCircle, RefreshCcw, User as UserIcon, MessageSquare, Loader2, Shield, Plus, MoreHorizontal, X } from 'lucide-react';
 import { Link, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './utils';
@@ -53,7 +56,8 @@ function SocialApp() {
       if (isLoadMore) setLoadingMore(true);
       else setLoadingPosts(true);
 
-      const { posts: newPosts, lastDoc: newLastDoc } = await api.getPosts(isLoadMore ? lastDoc : undefined);
+      // Fix: pass undefined for authorId when not loading more by author
+      const { posts: newPosts, lastDoc: newLastDoc } = await api.getPosts();
       
       if (isLoadMore) {
         setPosts(prev => [...prev, ...newPosts]);
@@ -62,8 +66,9 @@ function SocialApp() {
       }
       
       setLastDoc(newLastDoc);
-      setHasMore(newPosts.length === 15);
+      setHasMore(newPosts.length === 50); // Server returns 50
     } catch (err) {
+      console.error('Failed to fetch posts:', err);
       setError(err);
     } finally {
       setLoadingPosts(false);
@@ -80,19 +85,31 @@ function SocialApp() {
     }
   };
 
+  const fetchNotifications = async () => {
+    if (!user) return;
+    try {
+      const notifs = await api.getNotifications(user.uid);
+      setNotifications(notifs);
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    }
+  };
+
   useEffect(() => {
     // Initial fetch
     fetchPosts();
     fetchAds();
+    if (user) fetchNotifications();
 
     // Real-time polling for local DB (since we are not using Firestore onSnapshot anymore)
     const interval = setInterval(() => {
       fetchPosts();
       fetchAds();
+      if (user) fetchNotifications();
     }, 10000); // Poll every 10 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -180,7 +197,7 @@ function SocialApp() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-10 pb-24 lg:pb-8">
+      <main className="max-w-7xl mx-auto px-4 py-4 lg:py-8 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-10 pb-24 lg:pb-8">
         {/* Sidebar Left */}
         <aside className="hidden lg:block lg:col-span-3 space-y-8 sticky top-24 h-fit">
           <div className="space-y-1">
@@ -216,6 +233,7 @@ function SocialApp() {
             {user?.email === "gopinathmanjula7@gmail.com" && (
               <SidebarItem to="/settings" icon={<Settings size={20} />} label="Settings" active={location.pathname === '/settings'} />
             )}
+            <SidebarItem to="/privacy" icon={<Shield size={20} />} label="Privacy" active={location.pathname === '/privacy'} />
           </div>
 
           <div className="p-6 bg-stone-900 dark:bg-stone-50 rounded-3xl text-white dark:text-stone-900 space-y-4 shadow-xl shadow-stone-900/10 dark:shadow-white/5">
@@ -239,6 +257,7 @@ function SocialApp() {
               hasMore={hasMore} 
               loadingMore={loadingMore} 
               onLoadMore={() => fetchPosts(true)} 
+              onRefresh={() => fetchPosts()}
             />
           } />
             <Route path="/discover" element={<DiscoverPage />} />
@@ -252,6 +271,7 @@ function SocialApp() {
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/messages/:chatId" element={<ChatRoom />} />
             <Route path="/hashtag/:tag" element={<HashtagPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
             <Route path="/login" element={<LoginPage />} />
           </Routes>
         </div>
@@ -313,7 +333,7 @@ function SocialApp() {
           
           <div className="px-6 space-y-4">
             <div className="flex flex-wrap gap-x-4 gap-y-2 text-[10px] uppercase tracking-widest font-bold text-stone-300 dark:text-stone-600">
-              <a href="#" className="hover:text-stone-500 transition-colors">Privacy</a>
+              <Link to="/privacy" className="hover:text-stone-500 transition-colors">Privacy</Link>
               <a href="#" className="hover:text-stone-500 transition-colors">Terms</a>
               <a href="#" className="hover:text-stone-500 transition-colors">Cookies</a>
               <a href="#" className="hover:text-stone-500 transition-colors">Ads Info</a>
@@ -322,47 +342,119 @@ function SocialApp() {
           </div>
         </aside>
         {/* Mobile Nav */}
-        <MobileNav user={user} location={location} />
+        <MobileNav user={user} location={location} hasUnreadNotifs={hasUnreadNotifs} />
+
+        {/* Chatbot */}
+        <Chatbot />
+
+        {/* Floating Action Button for Mobile */}
+        {user && location.pathname === '/' && (
+          <button 
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="lg:hidden fixed bottom-20 right-6 w-14 h-14 bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 rounded-full shadow-2xl flex items-center justify-center z-40 hover:scale-110 active:scale-95 transition-all"
+          >
+            <Plus size={28} />
+          </button>
+        )}
       </main>
     </div>
   );
 }
 
-function MobileNav({ user, location }: { user: any, location: any }) {
+function MobileNav({ user, location, hasUnreadNotifs }: { user: any, location: any, hasUnreadNotifs: boolean }) {
+  const [showMore, setShowMore] = useState(false);
+
+  const moreItems = [
+    { to: '/trending', icon: <TrendingUp size={20} />, label: 'Trending' },
+    { to: '/bookmarks', icon: <Bookmark size={20} />, label: 'Bookmarks' },
+    { to: '/privacy', icon: <Shield size={20} />, label: 'Privacy' },
+  ];
+
+  if (user?.email === "gopinathmanjula7@gmail.com") {
+    moreItems.push({ to: '/settings', icon: <Settings size={20} />, label: 'Settings' });
+  }
+
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-stone-900/80 backdrop-blur-xl border-t border-black/5 dark:border-white/5 px-6 py-3 z-40 flex items-center justify-around shadow-2xl shadow-black/10">
-      <Link to="/" className={`p-2 rounded-2xl transition-all ${location.pathname === '/' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-        <Compass size={24} />
-      </Link>
-      <Link to="/discover" className={`p-2 rounded-2xl transition-all ${location.pathname === '/discover' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-        <Search size={24} />
-      </Link>
-      <Link to="/trending" className={`p-2 rounded-2xl transition-all ${location.pathname === '/trending' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-        <TrendingUp size={24} />
-      </Link>
-      {user ? (
-        <>
-          <Link to="/messages" className={`p-2 rounded-2xl transition-all ${location.pathname.startsWith('/messages') ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-            <MessageSquare size={24} />
-          </Link>
-          <Link to="/bookmarks" className={`p-2 rounded-2xl transition-all ${location.pathname === '/bookmarks' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-            <Bookmark size={24} />
-          </Link>
-          <Link to={`/profile/${user.uid}`} className={`p-2 rounded-2xl transition-all ${location.pathname === `/profile/${user.uid}` ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-            <UserIcon size={24} />
-          </Link>
-          {user?.email === "gopinathmanjula7@gmail.com" && (
-            <Link to="/settings" className={`p-2 rounded-2xl transition-all ${location.pathname === '/settings' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
-              <Settings size={24} />
+    <>
+      <AnimatePresence>
+        {showMore && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMore(false)}
+              className="fixed inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm z-40 lg:hidden"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-white dark:bg-stone-900 rounded-t-[2.5rem] p-8 z-50 lg:hidden border-t border-black/5 dark:border-white/5 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-display font-bold text-stone-900 dark:text-stone-50">More Features</h3>
+                <button 
+                  onClick={() => setShowMore(false)}
+                  className="p-2 bg-stone-100 dark:bg-stone-800 rounded-full text-stone-500"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {moreItems.map((item) => (
+                  <Link 
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setShowMore(false)}
+                    className={`flex items-center gap-4 p-4 rounded-2xl transition-all ${location.pathname === item.to ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900' : 'bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700'}`}
+                  >
+                    {item.icon}
+                    <span className="font-bold text-sm">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-stone-900/80 backdrop-blur-xl border-t border-black/5 dark:border-white/5 px-6 py-3 z-40 flex items-center justify-around shadow-2xl shadow-black/10">
+        <Link to="/" className={`p-2 rounded-2xl transition-all ${location.pathname === '/' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+          <Compass size={24} />
+        </Link>
+        <Link to="/discover" className={`p-2 rounded-2xl transition-all ${location.pathname === '/discover' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+          <Search size={24} />
+        </Link>
+        {user ? (
+          <>
+            <Link to="/notifications" className={`p-2 rounded-2xl transition-all relative ${location.pathname === '/notifications' ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+              <Bell size={24} />
+              {hasUnreadNotifs && (
+                <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-white dark:border-stone-900"></span>
+              )}
             </Link>
-          )}
-        </>
-      ) : (
-        <div className="flex items-center">
-          <Auth />
-        </div>
-      )}
-    </div>
+            <Link to="/messages" className={`p-2 rounded-2xl transition-all ${location.pathname.startsWith('/messages') ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+              <MessageSquare size={24} />
+            </Link>
+            <Link to={`/profile/${user.uid}`} className={`p-2 rounded-2xl transition-all ${location.pathname.startsWith('/profile') ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}>
+              <UserIcon size={24} />
+            </Link>
+            <button 
+              onClick={() => setShowMore(true)}
+              className={`p-2 rounded-2xl transition-all ${showMore ? 'bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 shadow-lg shadow-stone-900/20 dark:shadow-white/10' : 'text-stone-400'}`}
+            >
+              <MoreHorizontal size={24} />
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center">
+            <Auth />
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -374,20 +466,42 @@ interface SidebarItemProps {
   badge?: boolean;
 }
 
-function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore }: { 
+function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore, onRefresh }: { 
   posts: Post[], 
   ads: Ad[],
   loading: boolean, 
   error?: any,
   hasMore: boolean,
   loadingMore: boolean,
-  onLoadMore: () => void
+  onLoadMore: () => void,
+  onRefresh?: () => void
 }) {
   const [user] = useAuthState(auth);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Post[]>([]);
   
   const handleRefresh = async () => {
-    window.location.reload();
+    if (onRefresh) onRefresh();
+    else window.location.reload();
   };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) {
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const results = await api.getPosts(undefined, searchQuery);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search failed:', error);
+    }
+  };
+
+  const displayedPosts = isSearching ? searchResults : posts;
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -395,18 +509,44 @@ function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore }: 
       <div className="flex items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-          <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-stone-400">Live Feed</span>
+          <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-stone-400">{isSearching ? 'Search Results' : 'Live Feed'}</span>
         </div>
-        <button 
-          onClick={() => window.location.reload()}
-          className="text-[10px] uppercase tracking-[0.2em] font-bold text-stone-300 hover:text-stone-900 transition-colors flex items-center gap-2"
-        >
-          <RefreshCcw size={12} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-4">
+          <form onSubmit={handleSearch} className="relative hidden sm:block">
+            <input
+              type="text"
+              placeholder="Search ripples..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 pr-4 py-2 bg-stone-100 dark:bg-stone-800 rounded-full text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 w-48 transition-all focus:w-64"
+            />
+            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+            {searchQuery && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setIsSearching(false);
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-stone-400 hover:text-stone-600"
+              >
+                Clear
+              </button>
+            )}
+          </form>
+          <button 
+            onClick={() => onRefresh ? onRefresh() : window.location.reload()}
+            className="text-[10px] uppercase tracking-[0.2em] font-bold text-stone-300 hover:text-stone-900 transition-colors flex items-center gap-2"
+          >
+            <RefreshCcw size={12} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {!isSearching && <StoriesBar />}
       
-      {user && <CreatePost />}
+      {user && !isSearching && <CreatePost onSuccess={onRefresh} />}
       
       <div className="space-y-8">
         {error ? (
@@ -431,10 +571,10 @@ function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore }: 
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bg-white dark:bg-stone-900 rounded-3xl p-6 h-72 animate-pulse border border-black/5 dark:border-white/5" />
           ))
-        ) : posts && posts.length > 0 ? (
+        ) : displayedPosts && displayedPosts.length > 0 ? (
           <>
             <AnimatePresence mode="popLayout">
-              {posts.flatMap((post, index) => {
+              {displayedPosts.flatMap((post, index) => {
                 const items = [
                   <motion.div
                     key={post.id}
@@ -444,7 +584,7 @@ function Feed({ posts, ads, loading, error, hasMore, loadingMore, onLoadMore }: 
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
                   >
-                    <PostCard post={post} />
+                    <PostCard post={post} onDelete={onRefresh} />
                   </motion.div>
                 ];
 
@@ -732,7 +872,7 @@ function GlobalActivity() {
       <div className="space-y-4">
         {posts.map((post) => (
           <div key={post.id} className="flex gap-3 items-start">
-            <img src={post.authorPhoto} className="w-6 h-6 rounded-lg object-cover" referrerPolicy="no-referrer" />
+            <img src={post.authorPhoto || `https://ui-avatars.com/api/?name=${post.authorName}`} className="w-6 h-6 rounded-lg object-cover" referrerPolicy="no-referrer" />
             <div className="min-w-0">
               <p className="text-[10px] font-bold opacity-80 truncate">{post.authorName}</p>
               <p className="text-[10px] opacity-50 line-clamp-1">{post.content}</p>

@@ -109,7 +109,6 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
       setPollQuestion('');
       setPollOptions(['', '']);
       if (onSuccess) onSuccess();
-      window.location.reload(); // Refresh to show new post
     } catch (err: any) {
       console.error('Post creation error:', err.message);
       setError('Failed to create post. Please try again.');
@@ -119,13 +118,13 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
   };
 
   return (
-    <div className="bg-white dark:bg-stone-900 rounded-[2rem] shadow-xl shadow-black/5 dark:shadow-white/5 border border-black/5 dark:border-white/5 p-6 mb-8">
+    <div className="bg-white dark:bg-stone-900 rounded-[2rem] shadow-xl shadow-black/5 dark:shadow-white/5 border border-black/5 dark:border-white/5 p-4 sm:p-6 mb-8">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex gap-4">
           <img
             src={userProfile?.photoURL || auth.currentUser?.photoURL || `https://ui-avatars.com/api/?name=${userProfile?.displayName || auth.currentUser?.displayName}`}
             alt="User"
-            className="w-12 h-12 rounded-2xl object-cover border border-black/5 dark:border-white/5"
+            className="hidden sm:block w-12 h-12 rounded-2xl object-cover border border-black/5 dark:border-white/5"
             referrerPolicy="no-referrer"
           />
           <div className="flex-1 space-y-4">
@@ -146,7 +145,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
         </div>
         
         {error && (
-          <div className="ml-16 p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 text-sm rounded-xl border border-rose-100 dark:border-rose-900/30 flex items-center justify-between">
+          <div className="sm:ml-16 p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 text-sm rounded-xl border border-rose-100 dark:border-rose-900/30 flex items-center justify-between">
             <span>{error}</span>
             <button onClick={() => setError(null)} className="p-1 hover:bg-rose-100 dark:hover:bg-rose-900/40 rounded-full transition-colors">
               <X size={14} />
@@ -155,7 +154,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
         )}
 
         {image && (
-          <div className="relative ml-16 inline-block group">
+          <div className="relative sm:ml-16 inline-block group">
             <img src={image} alt="Preview" className="max-h-80 rounded-2xl object-cover border border-black/5 dark:border-white/5 shadow-lg" />
             <button
               type="button"
@@ -169,7 +168,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
         )}
 
         {showPoll && (
-          <div className="ml-16 p-6 bg-stone-50 dark:bg-stone-800/50 rounded-3xl border border-black/5 dark:border-white/5 space-y-4 relative">
+          <div className="sm:ml-16 p-6 bg-stone-50 dark:bg-stone-800/50 rounded-3xl border border-black/5 dark:border-white/5 space-y-4 relative">
             <button 
               type="button"
               onClick={() => setShowPoll(false)}
@@ -226,14 +225,14 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
         )}
 
         {quotedPost && (
-          <div className="ml-16 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-2xl border border-black/5 dark:border-white/5 relative group">
+          <div className="sm:ml-16 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-2xl border border-black/5 dark:border-white/5 relative group">
             <div className="flex items-center gap-2 mb-2">
-              <img src={quotedPost.authorPhoto} alt="" className="w-5 h-5 rounded-full" />
+              <img src={quotedPost.authorPhoto || `https://ui-avatars.com/api/?name=${quotedPost.authorName}`} alt="" className="w-5 h-5 rounded-full" />
               <span className="text-xs font-bold text-stone-900 dark:text-stone-50">{quotedPost.authorName}</span>
             </div>
             <p className="text-sm text-stone-600 dark:text-stone-400 line-clamp-2">{quotedPost.content}</p>
             {quotedPost.imageUrl && (
-              <img src={quotedPost.imageUrl} alt="" className="mt-2 max-h-32 rounded-lg object-cover w-full" />
+              <img src={quotedPost.imageUrl || undefined} alt="" className="mt-2 max-h-32 rounded-lg object-cover w-full" />
             )}
             {onCancel && (
               <button
@@ -247,7 +246,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({ quotedPost, onSuccess, o
           </div>
         )}
 
-        <div className="flex items-center justify-between pl-16 pt-4 border-t border-black/5 dark:border-white/5">
+        <div className="flex items-center justify-between sm:pl-16 pt-4 border-t border-black/5 dark:border-white/5">
           <div className="flex items-center gap-2">
             <label className="p-2.5 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 cursor-pointer transition-all text-stone-400 hover:text-stone-900 dark:hover:text-stone-50">
               <Image size={22} />

@@ -1,10 +1,13 @@
-import { Post } from '../types';
+import { Post, Story, UserProfile } from '../types';
 
 const API_BASE = '/api';
 
 export const api = {
-  async getPosts(authorId?: string): Promise<{ posts: Post[], lastDoc: any | null }> {
-    const url = authorId ? `${API_BASE}/posts?authorId=${authorId}` : `${API_BASE}/posts`;
+  async getPosts(authorId?: string, search?: string): Promise<{ posts: Post[], lastDoc: any | null }> {
+    let url = authorId ? `${API_BASE}/posts?authorId=${authorId}` : `${API_BASE}/posts`;
+    if (search) {
+      url += (url.includes('?') ? '&' : '?') + `search=${encodeURIComponent(search)}`;
+    }
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch posts');
     const posts = await res.json();
@@ -162,6 +165,15 @@ export const api = {
     if (!res.ok) throw new Error('Failed to toggle ad status');
   },
 
+  async updateAd(userId: string, adId: string, ad: any): Promise<void> {
+    const res = await fetch(`${API_BASE}/ads/${adId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, ad }),
+    });
+    if (!res.ok) throw new Error('Failed to update ad');
+  },
+
   async getChats(userId: string): Promise<any[]> {
     const res = await fetch(`${API_BASE}/chats/${userId}`);
     if (!res.ok) throw new Error('Failed to fetch chats');
@@ -208,5 +220,51 @@ export const api = {
     const res = await fetch(`${API_BASE}/bookmarks/${userId}`);
     if (!res.ok) throw new Error('Failed to fetch bookmarks');
     return res.json();
+  },
+
+  // Stories
+  async getStories(): Promise<Story[]> {
+    const res = await fetch(`${API_BASE}/stories`);
+    if (!res.ok) throw new Error('Failed to fetch stories');
+    return res.json();
+  },
+
+  async createStory(story: Omit<Story, 'id' | 'createdAt' | 'expiresAt'>): Promise<void> {
+    const res = await fetch(`${API_BASE}/stories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...story,
+        id: Math.random().toString(36).substr(2, 9),
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to create story');
+  },
+
+  // Moderation
+  async blockUser(userId: string, targetId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/users/${userId}/block`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetId }),
+    });
+    if (!res.ok) throw new Error('Failed to block user');
+  },
+
+  async muteUser(userId: string, targetId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/users/${userId}/mute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetId }),
+    });
+    if (!res.ok) throw new Error('Failed to mute user');
+  },
+
+  async verifyUser(userId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/users/${userId}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error('Failed to verify user');
   },
 };

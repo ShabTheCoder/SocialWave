@@ -5,6 +5,7 @@ import { MessageSquare, Search, Plus, Users } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
+import { censorText } from '../utils';
 import { CreateGroupModal } from './CreateGroupModal';
 
 export const MessagesPage: React.FC = () => {
@@ -102,7 +103,7 @@ export const MessagesPage: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-sm text-stone-500 dark:text-stone-400 truncate leading-relaxed">
-                      {chat.lastMessage || 'No messages yet'}
+                      {censorText(chat.lastMessage || 'No messages yet')}
                     </p>
                   </div>
                 </div>
